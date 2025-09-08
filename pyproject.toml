@@ -1,0 +1,17 @@
+[project]
+name = "gaussian-splatting-360-integration"
+version = "0.1.0"
+description = "Special course at DTU on integrating 360 degree cameras with Gaussian Splatting"
+readme = "README.md"
+authors = [
+    { name = "sarphiv", email = "32750711+sarphiv@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+splat-init = "splat_init:main"
+
+[build-system]
+requires = ["uv_build>=0.8.8,<0.9.0"]
+build-backend = "uv_build"
