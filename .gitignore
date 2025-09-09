@@ -214,3 +214,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+# Scratchpad files
+notebooks/scratchpad.ipynb
+tasks/human.md
