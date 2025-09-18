@@ -10,8 +10,10 @@ from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 import torch
 
-from .data.datamodule_360 import DataModule360
-from .data.stanford_2d_3d import Stanford2D3DDataset
+from splat_init.data.datamodule_360 import DataModule360
+from splat_init.data.stanford_2d_3d import Stanford2D3DDataset
+from splat_init.models.vggt_perspective_transform import VggtPerspectiveTransform
+from splat_init.models.vggt_naive_equirectangular import VggtNaiveEquirectangular
 from configs.training_args import Args
 
 
@@ -51,7 +53,7 @@ def _build_trainer(args: Args, logger: WandbLogger) -> L.Trainer:
     callbacks = [
         LearningRateMonitor(logging_interval="step"),
         ModelCheckpoint(
-            dirpath="models",
+            dirpath="checkpoints",
             filename=f"{logger.experiment.id}" + ":top:{epoch:02d}:{step}:{val_loss:.3f}",
             every_n_train_steps=args.checkpoint_save_every_n_steps,
             save_top_k=args.checkpoint_save_n_best,
@@ -59,7 +61,7 @@ def _build_trainer(args: Args, logger: WandbLogger) -> L.Trainer:
             monitor="val_loss",
         ),
         ModelCheckpoint(
-            dirpath="models",
+            dirpath="checkpoints",
             filename=f"{logger.experiment.id}" + ":all:{epoch:02d}:{step}:{val_loss:.3f}",
             every_n_train_steps=args.checkpoint_save_every_n_steps,
             save_top_k=-1,
@@ -69,6 +71,7 @@ def _build_trainer(args: Args, logger: WandbLogger) -> L.Trainer:
     trainer = L.Trainer(
         accelerator="auto",
         max_epochs=args.max_epochs,
+        max_steps=args.max_steps,
         precision=args.precision,
         logger=logger,
         log_every_n_steps=args.logging_step_period,
@@ -96,7 +99,8 @@ def main() -> None:
     dm = _build_datamodule(args)
 
     # Model
-    model = ...
+    # model = VggtPerspectiveTransform()
+    model = VggtNaiveEquirectangular()
 
     # Trainer
     torch.set_float32_matmul_precision("medium")

@@ -8,14 +8,14 @@ Dataset specifics (as seen in area_1_no_xyz):
 - Directories: ``pano/{rgb,depth,pose}``.
 - Filenames share the same prefix up to ``_domain_``.
 - Modalities:
-  - RGB:   ``..._domain_rgb.png``
+  - RGBA:  ``..._domain_rgb.png``
   - Depth: ``..._domain_depth.png``
   - Pose:  ``..._domain_pose.json`` with key ``camera_rt_matrix`` (3x4).
 - Room grouping uses the token in the filename, e.g. ``conferenceRoom_1``.
 
 Returned sample
 - origin_name: ``stanford-2d-3d/area-1/conference-room-1``
-- rgb:   torch tensor ``[S, 4, H, W]`` (uint8, RGBA where A is a cutout mask)
+- rgba:  torch tensor ``[S, 4, H, W]`` (uint8, RGBA where A is a cutout mask)
 - depth: torch tensor ``[S, 1, H, W]`` (float32)
 - pose:  torch tensor ``[S, 4, 4]`` (float32)
 """
@@ -29,7 +29,8 @@ from typing import Iterator
 import torch
 from torch import Tensor
 from torchvision.io import read_image
-from .datamodule_360 import RoomSample360
+
+from splat_init.data.datamodule_360 import RoomSample360
 
 
 # -----------------------------------------------------------------------------
@@ -132,19 +133,19 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[RoomSample360]):
         self.area_dir = area_dir
 
         pano_dir = area_dir / "pano"
-        rgb_dir = pano_dir / "rgb"
+        rgba_dir = pano_dir / "rgb"
         depth_dir = pano_dir / "depth"
         pose_dir = pano_dir / "pose"
 
         # Enumerate RGB files once, derive matching depth/pose names.
-        rgb_files = sorted(rgb_dir.glob("*.png"))
+        rgba_files = sorted(rgba_dir.glob("*.png"))
 
-        self._rgb_paths: list[Path] = []
+        self._rgba_paths: list[Path] = []
         self._depth_paths: list[Path] = []
         self._pose_paths: list[Path] = []
         self._room_per_view: list[str] = []
 
-        for p in rgb_files:
+        for p in rgba_files:
             name = p.name
             prefix = _prefix_up_to_domain(name)
             room_id = _extract_room_id(name)
@@ -155,7 +156,7 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[RoomSample360]):
             assert depth_path.is_file(), f"missing depth: {depth_path}"
             assert pose_path.is_file(), f"missing pose: {pose_path}"
 
-            self._rgb_paths.append(p)
+            self._rgba_paths.append(p)
             self._depth_paths.append(depth_path)
             self._pose_paths.append(pose_path)
             self._room_per_view.append(room_id)
@@ -173,14 +174,14 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[RoomSample360]):
         for room in rooms_sorted:
             # Stable order within a room by filename for determinism.
             indices = room_to_indices[room]
-            indices.sort(key=lambda i: self._rgb_paths[i].name)
+            indices.sort(key=lambda i: self._rgba_paths[i].name)
             start = len(new_order)
             new_order.extend(indices)
             end = len(new_order)
             new_room_indices.append(list(range(start, end)))
 
         # Reorder per-view arrays to make rooms contiguous.
-        self._rgb_paths = [self._rgb_paths[i] for i in new_order]
+        self._rgba_paths = [self._rgba_paths[i] for i in new_order]
         self._depth_paths = [self._depth_paths[i] for i in new_order]
         self._pose_paths = [self._pose_paths[i] for i in new_order]
         self._room_per_view = [self._room_per_view[i] for i in new_order]
@@ -189,8 +190,6 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[RoomSample360]):
         self._rooms: list[str] = rooms_sorted
         self._room_indices: list[list[int]] = new_room_indices
 
-        # Assumptions verified during development: RGB is 3/4-ch (we keep 3),
-        # Depth is single-channel, and RGB/Depth resolutions match.
 
     # ------------------------------------------------------------------
     # Dataset API
@@ -212,26 +211,28 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[RoomSample360]):
         view_indices = self._room_indices[idx]
         origin = _canonical_origin(self.area_dir, room_id)
 
-        rgb_imgs: list[Tensor] = []
+        rgba_imgs: list[Tensor] = []
         depth_imgs: list[Tensor] = []
         poses: list[Tensor] = []
 
         for vi in view_indices:
-            rgb = read_image(str(self._rgb_paths[vi]))  # [4,H,W] RGBA
-            rgb_imgs.append(rgb)
+            rgba = read_image(str(self._rgba_paths[vi]))  # [4,H,W] RGBA
+            rgba = rgba.to(torch.float32) / 255.0
+            rgba_imgs.append(rgba)
 
             depth = read_image(str(self._depth_paths[vi]))  # [1,H,W]
-            depth = depth.to(torch.float32)
+            # NOTE: Each depth unit is 1/512 meters.
+            depth = depth.to(torch.float32) / 512.0
             depth_imgs.append(depth)
 
             pose = _load_pose_json(self._pose_paths[vi])
             poses.append(pose)
 
-        rgb_batch = _stack_with_channel(rgb_imgs)   # [S,4,H,W]
+        rgba_batch = _stack_with_channel(rgba_imgs)   # [S,4,H,W]
         depth_batch = _stack_with_channel(depth_imgs)  # [S,1,H,W]
         pose_batch = torch.stack(poses, dim=0)  # [S,4,4]
 
-        return RoomSample360(origin, rgb_batch, depth_batch, pose_batch)
+        return RoomSample360(origin, rgba_batch, depth_batch, pose_batch)
 
     
 

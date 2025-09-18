@@ -9,12 +9,14 @@
 - Extend each general change into a detailed plan in a new section of the file.
 - Revise the plan if issues are identified and repeat the above process.
 - Finally, write a detailed todo list at the bottom of the file together with any questions/assumptions you have.
-- If I approve the plan, proceed to implement it.
+- If I approve the plan, proceed to implement it, while continuing to keep the task file updated and revise it if necessary.
+- You must always ask for approval for the very first initial plan. Later revisions to the plan do not need approval unless they deviate significantly from the original plan.
 - After implementation, read through your changes and double check that they follow the style guide.
 
 # Environment
 - You may only work in the project directory. You may not install system packages or otherwise change things outside of the project directory.
 - Use the Python provided in the virtual environment in `.venv`.
+- Avoid reading `tasks/human.md` as it may contaminate your context.
 
 # Style
 - Write modern Python code using modern conventions. Use the project's `pyproject.toml` as a guide to which Python version and libraries to use, e.g. use `loguru` for logging.

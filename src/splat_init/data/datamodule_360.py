@@ -7,8 +7,8 @@ Lightning's standard setup stages, and aims for deterministic shuffling.
 
 Conventions
 - A dataset item is a ``RoomSample360`` with fields:
-  - id:     e.g. ``stanford-2d-3d/area-1/conference-room-1``
-  - rgb:   uint8 tensor ``[S, 4, H, W]`` (RGBA; A masks cutouts)
+  - id:    e.g. ``stanford-2d-3d/area-1/conference-room-1``
+  - rgba:  uint8 tensor ``[S, 4, H, W]`` (RGBA; A masks cutouts)
   - depth: float32 tensor ``[S, 1, H, W]``
   - pose:  float32 tensor ``[S, 4, 4]``
 - A DataModule batch is a Python list[RoomSample360]. The collate function can
@@ -36,19 +36,19 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset
 # -----------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
+@dataclass
 class RoomSample360:
     """One room-worth of aligned panoramic views.
 
     Attributes
     - id:    Canonical identifier string.
-    - rgb:   Tensor of shape [S, 4, H, W], dtype uint8 (RGBA; A is cutout mask).
-    - depth: Tensor of shape [S, 1, H, W], dtype float32.
+    - rgba:  Tensor of shape [S, 4, H, W], dtype float32 (RGBA; A is cutout mask).
+    - depth: Tensor of shape [S, 1, H, W], dtype float32 (meters).
     - pose:  Tensor of shape [S, 4, 4], dtype float32.
     """
 
     id: str
-    rgb: Tensor
+    rgba: Tensor
     depth: Tensor
     pose: Tensor
 

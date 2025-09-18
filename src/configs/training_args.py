@@ -49,17 +49,18 @@ class Args:
     entity_name: str = environ.get("WANDB_ENTITY", "")
     project_name: str = environ.get("WANDB_PROJECT", "")
     run_name: str | None = None
-    logging_step_period: int = 20
+    logging_step_period: int = 1
     checkpoint_save_n_best: int = 3
     checkpoint_save_every_n_steps: int = 2000
 
     # Data loading
     batch_size: int = 1  # rooms per batch
-    dataloader_workers: int = 4
+    dataloader_workers: int = 8
     seed: int = 1337
 
     # Trainer
-    max_epochs: int = 1
+    max_epochs: int | None = None
+    max_steps: int = 0
     precision: PRECISION_INPUT_STR = "16-mixed"
 
     # Sub-configs

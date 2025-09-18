@@ -217,5 +217,10 @@ __marimo__/
 
 
 # Scratchpad files
-notebooks/scratchpad.ipynb
-tasks/human.md
+/notebooks/scratchpad.ipynb
+/tasks/human.md
+
+# Outputs
+/wandb/
+/outputs/*
+!/outputs/.gitkeep
