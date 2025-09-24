@@ -226,15 +226,8 @@ class VggtNaiveEquirectangular(LightningModule):
     def _compute_depth_loss(self, depth_gt: th.Tensor, depth_pred: th.Tensor, alpha: th.Tensor) -> th.Tensor:
         """Mean squared error on depth masked by alpha and saturation threshold."""
 
-        if depth_pred.dim() == depth_gt.dim():
-            pred = depth_pred
-        elif depth_pred.dim() == depth_gt.dim() - 1:
-            pred = depth_pred.unsqueeze(1)
-        else:
-            raise ValueError("Unexpected depth prediction shape")
-
         mask = (alpha > 0.5).float() * (depth_gt < 0.99).float()
-        residual = (depth_gt - pred) ** 2
+        residual = (depth_gt - depth_pred) ** 2
         return (residual * mask).mean()
 
     def _gather_predictions(
@@ -244,47 +237,39 @@ class VggtNaiveEquirectangular(LightningModule):
     ) -> tuple[list[th.Tensor], list[th.Tensor]]:
         """Slice VGGT outputs to match the original view counts."""
 
-        pose = preds["pose_enc"]
-        depth = preds["depth"]
-        if depth.dim() == 4:
-            depth = depth.unsqueeze(2)
+        pose = preds["pose_enc"]  # [B, V, 9]
+        depth = preds["depth"]    # [B, V, H, W, 1]
 
-        pose_list: list[th.Tensor] = []
-        depth_list: list[th.Tensor] = []
-
-        for idx, count in enumerate(view_counts):
-            pose_list.append(pose[idx, :count])
-            depth_slice = depth[idx, :count]
-            if depth_slice.dim() == 5:
-                depth_slice = depth_slice.squeeze(-1)
-            if depth_slice.dim() == 4:
-                if depth_slice.shape[1] == 1:
-                    pass
-                elif depth_slice.shape[-1] == 1:
-                    depth_slice = depth_slice.permute(0, 3, 1, 2)
-                else:
-                    depth_slice = depth_slice.unsqueeze(1)
-            elif depth_slice.dim() == 3:
-                depth_slice = depth_slice.unsqueeze(1)
-            depth_list.append(depth_slice)
-
+        pose_list = [pose[idx, :count] for idx, count in enumerate(view_counts)]
+        depth_list = [depth[idx, :count].squeeze(-1).unsqueeze(1) for idx, count in enumerate(view_counts)]
         return pose_list, depth_list
 
-    def _relative_pose(self, pose: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
-        """Compute rotations and translations relative to the first frame."""
+    def _pose_matrices_from_encoding(self, pose: th.Tensor) -> th.Tensor:
+        """Convert pose encoding into homogeneous transformation matrices."""
 
         quat, translation, _ = self._from_pose_encoding(pose)
         rotation = self._quat_to_mat_xyzw(quat)
 
-        batch = rotation.shape[0]
-        mats = th.zeros((batch, 4, 4), device=rotation.device, dtype=rotation.dtype)
-        mats[:, :3, :3] = rotation
-        mats[:, :3, 3] = translation
-        mats[:, 3, 3] = 1.0
+        mats = th.zeros((*rotation.shape[:-2], 4, 4), device=rotation.device, dtype=rotation.dtype)
+        mats[..., :3, :3] = rotation
+        mats[..., :3, 3] = translation
+        mats[..., 3, 3] = 1.0
+        return mats
+
+    @staticmethod
+    def _relative_rotations(mats: th.Tensor) -> th.Tensor:
+        """Return rotations relative to the first pose."""
 
         ref_inv = th.linalg.inv(mats[0])
         relative = mats @ ref_inv
-        return relative[:, :3, :3], relative[:, :3, 3]
+        return relative[:, :3, :3]
+
+    @staticmethod
+    def _camera_centers(mats: th.Tensor) -> th.Tensor:
+        """Compute camera centres in world coordinates from pose matrices."""
+
+        inv = th.linalg.inv(mats)
+        return inv[..., :3, 3]
 
     def _write_positions(self, stage: str, preds_t: th.Tensor, target_t: th.Tensor) -> None:
         """Append predicted and target translations to disk for inspection."""
@@ -322,16 +307,18 @@ class VggtNaiveEquirectangular(LightningModule):
             depth_losses.append(loss_depth)
 
             pose_mats = item.pose[:count]
-            pose_ref_inv = th.linalg.inv(pose_mats[0])
-            pose_rel = pose_mats @ pose_ref_inv
-            target_rot = pose_rel[:, :3, :3]
-            target_tr = pose_rel[:, :3, 3]
+            target_rot = self._relative_rotations(pose_mats)
+            target_centers = self._camera_centers(pose_mats)
+            target_centers_rel = target_centers - target_centers[:1]
 
-            pred_rot_rel, pred_tr_rel = self._relative_pose(pose_enc)
+            pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
+            pred_rot_rel = self._relative_rotations(pose_mats_pred)
+            pred_centers = self._camera_centers(pose_mats_pred)
+            pred_centers_rel = pred_centers - pred_centers[:1]
 
             if count > 1:
                 geodesic = self._geodesic_so3(target_rot[1:], pred_rot_rel[1:]).mean()
-                translation_loss = ((target_tr[1:] - pred_tr_rel[1:]) ** 2).mean()
+                translation_loss = ((target_centers_rel[1:] - pred_centers_rel[1:]) ** 2).mean()
             else:
                 zero = loss_depth.new_zeros(())
                 geodesic = zero
@@ -340,8 +327,8 @@ class VggtNaiveEquirectangular(LightningModule):
             rot_losses.append(geodesic)
             trans_losses.append(translation_loss)
 
-            pred_logs.append(pred_tr_rel)
-            target_logs.append(target_tr)
+            pred_logs.append(pred_centers_rel)
+            target_logs.append(target_centers_rel)
 
         loss_depth = th.stack(depth_losses).mean()
         loss_rot = th.stack(rot_losses).mean()

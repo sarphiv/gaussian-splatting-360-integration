@@ -99,8 +99,8 @@ def main() -> None:
     dm = _build_datamodule(args)
 
     # Model
-    # model = VggtPerspectiveTransform()
-    model = VggtNaiveEquirectangular()
+    model = VggtPerspectiveTransform()
+    # model = VggtNaiveEquirectangular()
 
     # Trainer
     torch.set_float32_matmul_precision("medium")

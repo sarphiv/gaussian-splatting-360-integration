@@ -66,10 +66,24 @@ def procrustes_align(pred: NDArrayFloat, target: NDArrayFloat) -> NDArrayFloat:
 def main() -> None:
     """Align predicted positions to targets, report MSE, and render a 3D visualization."""
     repo_root = Path(__file__).resolve().parent.parent
-    pred_path = repo_root / "outputs" / "positions_perspective_pred_val.txt"
-    target_path = repo_root / "outputs" / "positions_perspective_target_val.txt"
-    # pred_path = repo_root / "positions_pred_val.txt"
-    # target_path = repo_root / "positions_target_val.txt"
+    # pred_path = repo_root / "outputs" / "positions_perspective1_pred_val.txt"
+    # target_path = repo_root / "outputs" / "positions_perspective1_target_val.txt"
+    pred_path = repo_root / "outputs" / "positions_perspective2_pred_val.txt"
+    target_path = repo_root / "outputs" / "positions_perspective2_target_val.txt"
+    # pred_path = repo_root / "outputs" / "positions_perspective3_pred_val.txt"
+    # target_path = repo_root / "outputs" / "positions_perspective3_target_val.txt"
+    # pred_path = repo_root / "outputs" / "positions_perspective4_pred_val.txt"
+    # target_path = repo_root / "outputs" / "positions_perspective4_target_val.txt"
+    # pred_path = repo_root / "outputs" / "positions_perspective5_pred_val.txt"
+    # target_path = repo_root / "outputs" / "positions_perspective5_target_val.txt"
+
+    # pred_path = repo_root / "outputs" / "positions_naive1_pred_val.txt"
+    # target_path = repo_root / "outputs" / "positions_naive1_target_val.txt"
+    # pred_path = repo_root / "outputs" / "positions_naive2_pred_val.txt"
+    # target_path = repo_root / "outputs" / "positions_naive2_target_val.txt"
+    # pred_path = repo_root / "outputs" / "positions_naive3_pred_val.txt"
+    # target_path = repo_root / "outputs" / "positions_naive3_target_val.txt"
+
 
     pred_scenes = read_position_file(pred_path)
     target_scenes = read_position_file(target_path)
@@ -97,8 +111,8 @@ def main() -> None:
     aligned_points = np.vstack(aligned_scenes)
     target_points = np.vstack(retained_targets)
 
-    mse = np.mean(np.sum((aligned_points - target_points) ** 2, axis=1))
-    logger.info("Mean squared error after Procrustes alignment: {:.6f}", mse)
+    mean_error = np.mean(np.sqrt(np.sum((aligned_points - target_points) ** 2, axis=1)))
+    logger.info("Mean error after Procrustes alignment: {:.6f}", mean_error)
 
     scene_count = len(aligned_scenes)
     logger.info("Rendering {} aligned scene(s).", scene_count)
