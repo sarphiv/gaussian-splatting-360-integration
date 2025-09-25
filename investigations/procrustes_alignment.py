@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
-from typing import List
+from typing import DefaultDict, List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -88,14 +89,15 @@ def main() -> None:
     # pred_path = repo_root / "outputs" / "positions_naive3_pred_val.txt"
     # target_path = repo_root / "outputs" / "positions_naive3_target_val.txt"
 
-
     pred_scenes = read_position_file(pred_path)
     target_scenes = read_position_file(target_path)
 
     assert len(pred_scenes) == len(target_scenes), "Predicted and target files must have matching scene counts."
 
-    aligned_scenes: List[NDArrayFloat] = []
-    retained_targets: List[NDArrayFloat] = []
+    aligned_scenes_all: List[NDArrayFloat] = []
+    retained_targets_all: List[NDArrayFloat] = []
+    scene_errors: List[float] = []
+    sequence_lengths: List[int] = []
 
     for index, (pred_scene, target_scene) in enumerate(zip(pred_scenes, target_scenes), start=1):
         assert pred_scene.shape == target_scene.shape, f"Scene {index} has mismatched point counts."
@@ -107,19 +109,52 @@ def main() -> None:
             )
             continue
         aligned_scene = procrustes_align(pred_scene, target_scene)
-        aligned_scenes.append(aligned_scene)
-        retained_targets.append(target_scene)
+        distances = np.linalg.norm(aligned_scene - target_scene, axis=1)
+        scene_error = float(distances.mean())
+        scene_length = int(pred_scene.shape[0])
 
-    assert aligned_scenes, "No scenes with at least two points were found for alignment."
+        aligned_scenes_all.append(aligned_scene)
+        retained_targets_all.append(target_scene)
+        scene_errors.append(scene_error)
+        sequence_lengths.append(scene_length)
 
-    aligned_points = np.vstack(aligned_scenes)
-    target_points = np.vstack(retained_targets)
+    assert aligned_scenes_all, "No scenes with at least two points were found for alignment."
 
-    mean_error = np.mean(np.sqrt(np.sum((aligned_points - target_points) ** 2, axis=1)))
-    logger.info("Mean error after Procrustes alignment: {:.6f}", mean_error)
+    errors_by_length: DefaultDict[int, List[float]] = defaultdict(list)
+    for length, error in zip(sequence_lengths, scene_errors):
+        errors_by_length[length].append(error)
+
+    for length in sorted(errors_by_length):
+        mean_length_error = float(np.mean(errors_by_length[length]))
+        length_scene_count = len(errors_by_length[length])
+        logger.info(
+            "Mean position error for sequence length {} ({} scenes): {:.6f}",
+            length,
+            length_scene_count,
+            mean_length_error,
+        )
+
+    qualifying_indices = [index for index, length in enumerate(sequence_lengths) if length > 3]
+    if not qualifying_indices:
+        logger.warning("No scenes with sequence length greater than three; skipping visualization.")
+        return
+
+    aligned_scenes = [aligned_scenes_all[index] for index in qualifying_indices]
+    retained_targets = [retained_targets_all[index] for index in qualifying_indices]
+    retained_errors = [scene_errors[index] for index in qualifying_indices]
+    retained_lengths = [sequence_lengths[index] for index in qualifying_indices]
+
+    aligned_points_filtered = np.vstack(aligned_scenes)
+    target_points_filtered = np.vstack(retained_targets)
+    mean_filtered_error = float(
+        np.mean(np.linalg.norm(aligned_points_filtered - target_points_filtered, axis=1))
+    )
+    logger.info(
+        "Mean position error for sequence length >3: {:.6f}",
+        mean_filtered_error,
+    )
 
     scene_count = len(aligned_scenes)
-    logger.info("Rendering {} aligned scene(s).", scene_count)
 
     fig = plt.figure(figsize=(8, 6))
     ax = fig.add_subplot(111, projection="3d")
@@ -166,6 +201,15 @@ def main() -> None:
             )
         ]
 
+    def log_scene_error(scene_index: int) -> None:
+        logger.info(
+            "Visualization scene {}/{} (sequence length {}): mean position error {:.6f}",
+            scene_index + 1,
+            scene_count,
+            retained_lengths[scene_index],
+            retained_errors[scene_index],
+        )
+
     def update_scene(scene_index: int) -> None:
         nonlocal current_index
         current_index = scene_index % scene_count
@@ -177,12 +221,14 @@ def main() -> None:
         ax.set_title(
             f"Procrustes Alignment of Predictions to Targets (Scene {current_index + 1}/{scene_count})"
         )
+        log_scene_error(current_index)
         fig.canvas.draw_idle()
 
     draw_connectors(current_index)
     ax.set_title(
         f"Procrustes Alignment of Predictions to Targets (Scene {current_index + 1}/{scene_count})"
     )
+    log_scene_error(current_index)
 
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
