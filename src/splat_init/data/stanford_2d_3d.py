@@ -126,11 +126,14 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[RoomSample360]):
 
     Parameters
     - area_dir: Path to an ``area_*`` directory with ``pano`` subfolders.
+    - max_sequence_length: Optional cap on the number of views per room. Rooms
+      exceeding this length are skipped entirely when indexing.
     """
 
-    def __init__(self, area_dir: Path) -> None:
+    def __init__(self, area_dir: Path, max_sequence_length: int | None = None) -> None:
         super().__init__()
         self.area_dir = area_dir
+        self.max_sequence_length = max_sequence_length
 
         pano_dir = area_dir / "pano"
         rgba_dir = pano_dir / "rgb"
@@ -170,15 +173,20 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[RoomSample360]):
         rooms_sorted: list[str] = sorted(room_to_indices.keys())
         new_order: list[int] = []
         new_room_indices: list[list[int]] = []
+        kept_rooms: list[str] = []
+        limit = self.max_sequence_length
 
         for room in rooms_sorted:
             # Stable order within a room by filename for determinism.
             indices = room_to_indices[room]
             indices.sort(key=lambda i: self._rgba_paths[i].name)
+            if limit is not None and len(indices) > limit:
+                continue
             start = len(new_order)
             new_order.extend(indices)
             end = len(new_order)
             new_room_indices.append(list(range(start, end)))
+            kept_rooms.append(room)
 
         # Reorder per-view arrays to make rooms contiguous.
         self._rgba_paths = [self._rgba_paths[i] for i in new_order]
@@ -187,7 +195,7 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[RoomSample360]):
         self._room_per_view = [self._room_per_view[i] for i in new_order]
 
         # Freeze room lists and indices post-reordering.
-        self._rooms: list[str] = rooms_sorted
+        self._rooms: list[str] = kept_rooms
         self._room_indices: list[list[int]] = new_room_indices
 
 

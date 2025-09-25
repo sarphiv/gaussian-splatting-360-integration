@@ -23,15 +23,18 @@ from configs.training_args import Args
 # -----------------------------------------------------------------------------
 
 
-def _stanford_callables(paths: Sequence[Path]) -> list[Callable[[], Stanford2D3DDataset]]:
+def _stanford_callables(
+    paths: Sequence[Path],
+    max_sequence_length: int | None = None,
+) -> list[Callable[[], Stanford2D3DDataset]]:
     """Create dataset constructors for provided Stanford area directories."""
 
-    return [lambda p=p: Stanford2D3DDataset(p) for p in paths]
+    return [lambda p=p: Stanford2D3DDataset(p, max_sequence_length) for p in paths]
 
 
 def _build_datamodule(args: Args) -> DataModule360:
-    train_fns = _stanford_callables(args.data.train_areas)
-    val_fns = _stanford_callables(args.data.val_areas) if args.data.val_areas else []
+    train_fns = _stanford_callables(args.data.train_areas, args.data.max_sequence_length)
+    val_fns = _stanford_callables(args.data.val_areas, args.data.max_sequence_length) if args.data.val_areas else []
 
     dm = DataModule360(
         train_datasets=train_fns,

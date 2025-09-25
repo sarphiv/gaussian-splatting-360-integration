@@ -31,7 +31,7 @@ class DataArgs:
 
     Provide one or more Stanford area directories for each stage.
     """
-
+    max_sequence_length: int | None = 8
     train_areas: Sequence[Path] = tuple(
         Path(environ.get("DATASET_STANFORD_2D_3D_ROOT", "")) / area
         for area in ("area_1", "area_2", "area_5a", "area_5b")

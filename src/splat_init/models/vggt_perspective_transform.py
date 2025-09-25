@@ -157,21 +157,29 @@ class VggtPerspectiveTransform(LightningModule):
     def __init__(
         self,
         model_url: Path = Path("facebook/VGGT-1B"),
-        *,
-        faces_per_forward: int = 12,
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
 
-        self.model = VGGT.from_pretrained(model_url)
+        self.model = VGGT.from_pretrained(
+            model_url,
+            enable_point=False,
+            enable_track=False,
+        )
         self.model.eval()
+        self.model.requires_grad_(False)
 
         self._projector = OTCProjector(face_size=VGGT_TARGET_SIZE)
-        face_weights = th.tensor([0.23, 0.23, 0.04, 0.04, 0.23, 0.23], dtype=th.float32)
+        face_weights = th.tensor([0.25, 0.25, 0.25, 0.25], dtype=th.float32)
         self.face_weights: th.Tensor
         self.register_buffer("face_weights", face_weights, persistent=False)
 
-        self.faces_per_forward = faces_per_forward
+        self.depth_frames_chunk_size = 2
+
+    def _ensure_model_dtype(self, images: th.Tensor) -> th.dtype:
+        """Move VGGT to the image device and cast to inference precision."""
+        self.model.to(device=images.device, dtype=th.bfloat16)
+        return th.bfloat16
 
     # ------------------------------------------------------------------
     # Projection
@@ -194,35 +202,43 @@ class VggtPerspectiveTransform(LightningModule):
         )
 
     def _prepare_vggt_input(self, projected: _ProjectedSample) -> th.Tensor:
+        projected.rgb = projected.rgb[:, [0, 1, 4, 5], ...]
+        projected.depth = projected.depth[:, [0, 1, 4, 5], ...]
+        projected.alpha = projected.alpha[:, [0, 1, 4, 5], ...]
         views = projected.rgb.shape[0]
-        faces = projected.rgb.reshape(1, views * 6, 3, VGGT_TARGET_SIZE, VGGT_TARGET_SIZE)
+        faces = projected.rgb.reshape(1, views * len(self.face_weights), 3, VGGT_TARGET_SIZE, VGGT_TARGET_SIZE)
         if faces.is_cuda:
-            faces = faces.to(dtype=th.float16)
+            faces = faces.to(dtype=th.bfloat16)
         return faces
 
     def _forward_vggt(self, images: th.Tensor) -> dict[str, th.Tensor]:
-        total_faces = images.shape[1]
-        chunk_size = max(1, min(self.faces_per_forward, total_faces))
-
-        pose_chunks: list[th.Tensor] = []
-        depth_chunks: list[th.Tensor] = []
-        autocast_dtype = th.float16 if images.is_cuda else images.dtype
+        assert self.model.camera_head is not None, "VGGT missing camera head"
+        assert self.model.depth_head is not None, "VGGT missing depth head"
+        
+        target_dtype = self._ensure_model_dtype(images)
+        autocast_dtype = target_dtype
         device_type = images.device.type
 
-        for start in range(0, total_faces, chunk_size):
-            end = start + chunk_size
-            chunk = images[:, start:end]
-            with th.autocast(device_type=device_type, dtype=autocast_dtype, enabled=images.is_cuda):
-                preds = self.model(chunk)
-            pose_chunks.append(preds["pose_enc"])
-            depth_chunks.append(preds["depth"])
+        with th.inference_mode():
+            with th.autocast(device_type=device_type, dtype=autocast_dtype, enabled=True):
+                token_sequences, patch_start_idx = self.model.aggregator(images)
 
-        pose = th.cat(pose_chunks, dim=1)
-        depth = th.cat(depth_chunks, dim=1)
-        if pose.dtype.is_floating_point and pose.dtype != th.float32:
-            pose = pose.float()
-        if depth.dtype.is_floating_point and depth.dtype != th.float32:
-            depth = depth.float()
+                pose_list = self.model.camera_head(token_sequences)
+                pose = pose_list[-1]
+                del pose_list
+
+                depth, depth_conf = self.model.depth_head(
+                    token_sequences,
+                    images=images,
+                    patch_start_idx=patch_start_idx,
+                    frames_chunk_size=self.depth_frames_chunk_size,
+                )
+                del depth_conf
+
+        del token_sequences
+
+        pose = pose.float()
+        depth = depth.float()
         return {"pose_enc": pose, "depth": depth}
 
     # ------------------------------------------------------------------
@@ -337,13 +353,13 @@ class VggtPerspectiveTransform(LightningModule):
         preds = self._forward_vggt(vggt_input)
 
         views = projected.rgb.shape[0]
-        pose_faces = preds["pose_enc"][0].view(views, 6, -1)
-        depth_faces = preds["depth"][0].view(views, 6, VGGT_TARGET_SIZE, VGGT_TARGET_SIZE)
+        pose_faces = preds["pose_enc"][0].view(views, len(self.face_weights), -1)
+        depth_faces = preds["depth"][0].view(views, len(self.face_weights), VGGT_TARGET_SIZE, VGGT_TARGET_SIZE)
 
         quat_faces, translation_faces, _ = self._from_pose_encoding(pose_faces)
 
         rotation_merged = self._mean_rotation_markley(quat_faces)
-        weights = self.face_weights.to(translation_faces).view(1, 6, 1)
+        weights = self.face_weights.to(translation_faces).view(1, len(self.face_weights), 1)
         translation_merged = (translation_faces * weights).sum(dim=1)
 
         mats_pred = self._assemble_se3(rotation_merged, translation_merged)
