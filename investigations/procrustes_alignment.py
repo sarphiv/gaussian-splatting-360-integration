@@ -201,13 +201,11 @@ def main() -> None:
             )
         ]
 
-    def log_scene_error(scene_index: int) -> None:
-        logger.info(
-            "Visualization scene {}/{} (sequence length {}): mean position error {:.6f}",
-            scene_index + 1,
-            scene_count,
-            retained_lengths[scene_index],
-            retained_errors[scene_index],
+    def set_scene_title(scene_index: int) -> None:
+        mean_error = retained_errors[scene_index]
+        sequence_length = retained_lengths[scene_index]
+        ax.set_title(
+            f"Scene {scene_index + 1}/{scene_count}, length {sequence_length}, mean error {mean_error:.6f}"
         )
 
     def update_scene(scene_index: int) -> None:
@@ -218,17 +216,11 @@ def main() -> None:
         target_scatter._offsets3d = (target[:, 0], target[:, 1], target[:, 2])
         aligned_scatter._offsets3d = (aligned[:, 0], aligned[:, 1], aligned[:, 2])
         draw_connectors(current_index)
-        ax.set_title(
-            f"Procrustes Alignment of Predictions to Targets (Scene {current_index + 1}/{scene_count})"
-        )
-        log_scene_error(current_index)
+        set_scene_title(current_index)
         fig.canvas.draw_idle()
 
     draw_connectors(current_index)
-    ax.set_title(
-        f"Procrustes Alignment of Predictions to Targets (Scene {current_index + 1}/{scene_count})"
-    )
-    log_scene_error(current_index)
+    set_scene_title(current_index)
 
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
