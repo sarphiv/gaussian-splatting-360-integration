@@ -20,7 +20,7 @@ from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig, STEP_O
 from vggt.models.vggt import VGGT
 
 from configs.constants import TRAIN_PREFIX, VALIDATION_PREFIX, VGGT_TARGET_SIZE
-from splat_init.data.datamodule_360 import RoomSample360
+from splat_init.data.datamodule_360 import SceneSample
 
 _FACE_ORDER = ("+X", "-X", "+Y", "-Y", "+Z", "-Z")
 
@@ -36,7 +36,7 @@ class _ProjectedSample:
 
 
 class OTCProjector:
-    """Project equirectangular tensors to overlapping tangent cube faces."""
+    """Project equirectangular tensors to optimized tangens cube faces."""
 
     def __init__(self, face_size: int, alpha: float = 0.8687) -> None:
         self.face_size = int(face_size)
@@ -52,9 +52,9 @@ class OTCProjector:
         elif face == "-X":
             x, y, z = -one, -v, u
         elif face == "+Y":
-            x, y, z = u, one, v
-        elif face == "-Y":
             x, y, z = u, -one, -v
+        elif face == "-Y":
+            x, y, z = u, one, v
         elif face == "+Z":
             x, y, z = u, -v, one
         elif face == "-Z":
@@ -185,7 +185,7 @@ class VggtPerspectiveTransform(LightningModule):
     # Projection
     # ------------------------------------------------------------------
 
-    def _project_sample(self, sample: RoomSample360) -> _ProjectedSample:
+    def _project_sample(self, sample: SceneSample) -> _ProjectedSample:
         rgba = sample.rgba.to(device=self.device, dtype=th.float32)
         depth = sample.depth.to(device=self.device, dtype=th.float32)
         pose = sample.pose.to(device=self.device, dtype=th.float32)
@@ -344,7 +344,7 @@ class VggtPerspectiveTransform(LightningModule):
     def forward(self, images: th.Tensor) -> dict[str, th.Tensor]:
         return self.model(images)
 
-    def _shared_step(self, batch: list[RoomSample360], stage: str) -> dict[str, th.Tensor]:
+    def _shared_step(self, batch: list[SceneSample], stage: str) -> dict[str, th.Tensor]:
         assert len(batch) == 1, "Batch size > 1 not supported yet"
         sample = batch[0]
 
@@ -400,12 +400,12 @@ class VggtPerspectiveTransform(LightningModule):
         }
         return metrics
 
-    def training_step(self, batch: list[RoomSample360], batch_idx: int) -> STEP_OUTPUT:
+    def training_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
         metrics = self._shared_step(batch, stage="train")
         self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=True)
         return metrics["loss"]
 
-    def validation_step(self, batch: list[RoomSample360], batch_idx: int) -> STEP_OUTPUT:
+    def validation_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
         metrics = self._shared_step(batch, stage="val")
         self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=False)
         return metrics["loss"]

@@ -6,12 +6,12 @@ samples. The DataModule is data-oriented, stage-agnostic beyond PyTorch
 Lightning's standard setup stages, and aims for deterministic shuffling.
 
 Conventions
-- A dataset item is a ``RoomSample360`` with fields:
+- A dataset item is a ``SceneSample`` with fields:
   - id:    e.g. ``stanford-2d-3d/area-1/conference-room-1``
   - rgba:  uint8 tensor ``[S, 4, H, W]`` (RGBA; A masks cutouts)
   - depth: float32 tensor ``[S, 1, H, W]``
   - pose:  float32 tensor ``[S, 4, 4]``
-- A DataModule batch is a Python list[RoomSample360]. The collate function can
+- A DataModule batch is a Python list[SceneSample]. The collate function can
   optionally apply a transform to each element.
 
 Determinism
@@ -37,20 +37,22 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset
 
 
 @dataclass
-class RoomSample360:
-    """One room-worth of aligned panoramic views.
+class SceneSample:
+    """One scene-worth of aligned panoramic views.
 
     Attributes
-    - id:    Canonical identifier string.
-    - rgba:  Tensor of shape [S, 4, H, W], dtype float32 (RGBA; A is cutout mask).
-    - depth: Tensor of shape [S, 1, H, W], dtype float32 (meters).
-    - pose:  Tensor of shape [S, 4, 4], dtype float32.
+    - id:           Canonical identifier string.
+    - rgba:         Tensor of shape [S, 4, H, W], dtype float32 (RGBA; A is cutout mask).
+    - depth:        Tensor of shape [S, 1, H, W], dtype float32 (meters).
+    - pose:         Tensor of shape [S, 4, 4], dtype float32.
+    - focal_length: Optional tensor of shape [S], dtype float32 (pixels).
     """
 
     id: str
     rgba: Tensor
     depth: Tensor
     pose: Tensor
+    focal_length: Tensor | None
 
 
 # -----------------------------------------------------------------------------
@@ -72,15 +74,15 @@ class DataModule360(L.LightningDataModule):
     - persistent_workers: Keep workers alive between iterations.
     - prefetch_factor: Batches prefetched per worker (requires num_workers>0).
     - shuffle_train/val/test: Shuffle flags per stage.
-    - transform:      Optional callable applied to each RoomSample360 in collate.
+    - transform:      Optional callable applied to each SceneSample in collate.
     """
 
     def __init__(
         self,
         *,
-        train_datasets: Sequence[Callable[[], Dataset[RoomSample360]]],
-        val_datasets: Sequence[Callable[[], Dataset[RoomSample360]]] | None = None,
-        test_datasets: Sequence[Callable[[], Dataset[RoomSample360]]] | None = None,
+        train_datasets: Sequence[Callable[[], Dataset[SceneSample]]],
+        val_datasets: Sequence[Callable[[], Dataset[SceneSample]]] | None = None,
+        test_datasets: Sequence[Callable[[], Dataset[SceneSample]]] | None = None,
         batch_size: int = 1,
         num_workers: int = 4,
         seed: int = 0,
@@ -90,7 +92,7 @@ class DataModule360(L.LightningDataModule):
         shuffle_train: bool = True,
         shuffle_val: bool = False,
         shuffle_test: bool = False,
-        transform: Callable[[RoomSample360], RoomSample360] | None = None,
+        transform: Callable[[SceneSample], SceneSample] | None = None,
     ) -> None:
         super().__init__()
         self._train_fns = list(train_datasets)
@@ -109,9 +111,9 @@ class DataModule360(L.LightningDataModule):
         self._transform = transform
 
         # Lazily created datasets
-        self._train_ds: Dataset[RoomSample360] | None = None
-        self._val_ds: Dataset[RoomSample360] | None = None
-        self._test_ds: Dataset[RoomSample360] | None = None
+        self._train_ds: Dataset[SceneSample] | None = None
+        self._val_ds: Dataset[SceneSample] | None = None
+        self._test_ds: Dataset[SceneSample] | None = None
 
     # ------------------------------------------------------------------
     # Lightning hooks
@@ -128,7 +130,7 @@ class DataModule360(L.LightningDataModule):
             test_list = [fn() for fn in self._test_fns] if self._test_fns else []
             self._test_ds = _concat(test_list) if test_list else _EMPTY_DATASET
 
-    def train_dataloader(self) -> DataLoader[List[RoomSample360]]:
+    def train_dataloader(self) -> DataLoader[List[SceneSample]]:
         assert self._train_ds is not None, "call setup('fit') before train_dataloader()"
         return make_dataloader(
             self._train_ds,
@@ -142,7 +144,7 @@ class DataModule360(L.LightningDataModule):
             collate_fn=self._collate,
         )
 
-    def val_dataloader(self) -> DataLoader[List[RoomSample360]]:
+    def val_dataloader(self) -> DataLoader[List[SceneSample]]:
         assert self._val_ds is not None, "call setup('validate') before val_dataloader()"
         return make_dataloader(
             self._val_ds,
@@ -156,7 +158,7 @@ class DataModule360(L.LightningDataModule):
             collate_fn=self._collate,
         )
 
-    def test_dataloader(self) -> DataLoader[List[RoomSample360]]:
+    def test_dataloader(self) -> DataLoader[List[SceneSample]]:
         assert self._test_ds is not None, "call setup('test') before test_dataloader()"
         return make_dataloader(
             self._test_ds,
@@ -170,7 +172,7 @@ class DataModule360(L.LightningDataModule):
             collate_fn=self._collate,
         )
 
-    def _collate(self, batch: List[RoomSample360]) -> List[RoomSample360]:
+    def _collate(self, batch: List[SceneSample]) -> List[SceneSample]:
         if self._transform is None:
             return batch
         return [self._transform(x) for x in batch]
@@ -181,7 +183,7 @@ class DataModule360(L.LightningDataModule):
 # -----------------------------------------------------------------------------
 
 
-def _concat(datasets: Sequence[Dataset[RoomSample360]]) -> Dataset[RoomSample360]:
+def _concat(datasets: Sequence[Dataset[SceneSample]]) -> Dataset[SceneSample]:
     """Concatenate datasets if there are more than one, else return the single.
 
     This keeps indexing fast while allowing multi-area/multi-dataset training.
@@ -192,15 +194,15 @@ def _concat(datasets: Sequence[Dataset[RoomSample360]]) -> Dataset[RoomSample360
 
 
 # Minimal empty dataset to satisfy loader types when a stage has no data.
-class _EmptyDataset(Dataset[RoomSample360]):
+class _EmptyDataset(Dataset[SceneSample]):
     def __len__(self) -> int:
         return 0
 
-    def __getitem__(self, idx: int) -> RoomSample360:  # pragma: no cover - never called
+    def __getitem__(self, idx: int) -> SceneSample:  # pragma: no cover - never called
         raise IndexError
 
 
-_EMPTY_DATASET: Dataset[RoomSample360] = _EmptyDataset()
+_EMPTY_DATASET: Dataset[SceneSample] = _EmptyDataset()
 
 
 def _seed_worker(worker_id: int) -> None:
@@ -218,7 +220,7 @@ def _seed_worker(worker_id: int) -> None:
 
 
 def make_dataloader(
-    ds: Dataset[RoomSample360],
+    ds: Dataset[SceneSample],
     *,
     batch_size: int,
     shuffle: bool,
@@ -227,8 +229,8 @@ def make_dataloader(
     pin_memory: bool,
     persistent_workers: bool,
     prefetch_factor: int | None,
-    collate_fn: Callable[[List[RoomSample360]], List[RoomSample360]],
-) -> DataLoader[List[RoomSample360]]:
+    collate_fn: Callable[[List[SceneSample]], List[SceneSample]],
+) -> DataLoader[List[SceneSample]]:
     """Factory for DataLoader with deterministic shuffling and worker seeding."""
 
     gen = torch.Generator()
@@ -252,6 +254,6 @@ def make_dataloader(
 
 
 __all__ = [
-    "RoomSample360",
+    "SceneSample",
     "DataModule360",
 ]

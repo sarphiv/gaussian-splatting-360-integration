@@ -1,7 +1,7 @@
 """Naive VGGT variant that ingests equirectangular panoramas directly.
 
 This module reproduces VGGT's standard image preprocessing in-memory so that
-RoomSample360 tensors can be fed straight into the pretrained VGGT model
+SceneSample tensors can be fed straight into the pretrained VGGT model
 without touching the filesystem. The resulting predictions are evaluated with
 the same rotation, translation, and depth losses used by the perspective
 baseline while also dumping position traces for downstream analysis.
@@ -20,7 +20,7 @@ from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig, STEP_O
 from vggt.models.vggt import VGGT
 
 from configs.constants import TRAIN_PREFIX, VALIDATION_PREFIX, VGGT_TARGET_SIZE
-from splat_init.data.datamodule_360 import RoomSample360
+from splat_init.data.datamodule_360 import SceneSample
 
 
 @dataclass
@@ -70,7 +70,7 @@ class VggtNaiveEquirectangular(LightningModule):
         bottom = top + target_height
         return tensor[..., top:bottom, :]
 
-    def _preprocess_sample(self, sample: RoomSample360) -> _ProcessedSample:
+    def _preprocess_sample(self, sample: SceneSample) -> _ProcessedSample:
         """Apply VGGT's crop/pad preprocessing in-memory to one room sample."""
 
         rgba = sample.rgba.to(device=self.device, dtype=th.float32)
@@ -117,7 +117,7 @@ class VggtNaiveEquirectangular(LightningModule):
         return F.pad(tensor, padding, value=pad_value)
 
     def _prepare_batch(
-        self, batch: list[RoomSample360]
+        self, batch: list[SceneSample]
     ) -> tuple[th.Tensor, list[_ProcessedSample], list[int]]:
         """Pads panoramas to a common shape and stacks them for VGGT."""
 
@@ -285,7 +285,7 @@ class VggtNaiveEquirectangular(LightningModule):
                     handle.write(f"{x:.6f}, {y:.6f}, {z:.6f}\n")
                 handle.write("---\n")
 
-    def _shared_step(self, batch: list[RoomSample360], stage: str) -> dict[str, th.Tensor]:
+    def _shared_step(self, batch: list[SceneSample], stage: str) -> dict[str, th.Tensor]:
         """Compute losses and auxiliary metrics for one step."""
 
         assert len(batch) > 0, "Batch must not be empty"
@@ -351,12 +351,12 @@ class VggtNaiveEquirectangular(LightningModule):
         }
         return metrics
 
-    def training_step(self, batch: list[RoomSample360], batch_idx: int) -> STEP_OUTPUT:
+    def training_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
         metrics = self._shared_step(batch, stage="train")
         self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=True)
         return metrics["loss"]
 
-    def validation_step(self, batch: list[RoomSample360], batch_idx: int) -> STEP_OUTPUT:
+    def validation_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
         metrics = self._shared_step(batch, stage="val")
         self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=False)
         return metrics["loss"]

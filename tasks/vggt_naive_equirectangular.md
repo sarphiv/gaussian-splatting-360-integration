@@ -8,12 +8,12 @@
 ## Detailed Plan
 ### Clarify data shapes and preprocessing needed to reuse VGGT's loader logic directly on in-memory tensors
 - Deconstruct `load_and_preprocess_images` to capture its resize, crop, and padding behavior (including multiples-of-14 handling and whitening).
-- Implement an in-memory preprocessing function that ingests `RoomSample360` tensors, applies the same normalization, and returns RGB batches plus per-view masks mirroring the loader output.
+- Implement an in-memory preprocessing function that ingests `SceneSample` tensors, applies the same normalization, and returns RGB batches plus per-view masks mirroring the loader output.
 - Establish the resizing strategy so RGB, alpha, and depth tensors all land on the same `VGGT_TARGET_SIZE` grid expected by the model outputs without ever serializing to disk.
 
 ### Design a clean LightningModule that feeds the preprocessed ERP views directly into VGGT and mirrors the existing loss stack
 - Instantiate the pretrained VGGT model once, set it to eval, and implement a forward wrapper with autocast for inference.
-- Structure helper methods to convert a `RoomSample360` sample into batched VGGT inputs (RGB, depth, alpha masks) using the new in-memory preprocessing.
+- Structure helper methods to convert a `SceneSample` sample into batched VGGT inputs (RGB, depth, alpha masks) using the new in-memory preprocessing.
 - Implement training/validation hooks that reshape predictions back to `[B, S, ...]`, merge per-view poses, enforce camera-rel pose normalization, and compute the depth/rotation/translation losses with clear weighting.
 
 ### Define auxiliary utilities for pose decoding, loss computation, and position logging to keep the training/validation steps tidy
