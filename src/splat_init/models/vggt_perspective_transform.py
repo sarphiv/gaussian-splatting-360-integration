@@ -25,6 +25,32 @@ from splat_init.data.datamodule_360 import SceneSample
 _FACE_ORDER = ("+X", "-X", "+Y", "-Y", "+Z", "-Z")
 
 
+def cube_face_relative_rotations() -> th.Tensor:
+    """
+    Frames are right-handed with +X right, +Y down, +Z forward.
+    Returns:
+        R_i [6, 3, 3] such that R_i_face = R @ R_i,
+        where R is the cannonical orientation and R_i_face is the face orientation.
+    """
+    ex = th.tensor([1.,0.,0.])
+    ey = th.tensor([0.,1.,0.])
+    ez = th.tensor([0.,0.,1.])
+
+    def M(c1, c2, c3):
+        return th.stack((c1, c2, c3), dim=-1)  # [3,3] with columns r,u,f
+
+    faces = [
+        M(-ez,  ey,  ex),  # +X
+        M( ez,  ey, -ex),  # -X
+        M( ex, -ez,  ey),  # +Y
+        M( ex,  ez, -ey),  # -Y
+        M( ex,  ey,  ez),  # +Z
+        M(-ex,  ey, -ez),  # -Z
+    ]
+
+    return th.stack(faces, dim=-3)  # [6,3,3]
+
+
 @dataclass
 class _ProjectedSample:
     """Perspective faces derived from an equirectangular panorama."""
@@ -157,6 +183,7 @@ class VggtPerspectiveTransform(LightningModule):
     def __init__(
         self,
         model_url: Path = Path("facebook/VGGT-1B"),
+        output_dir: Path | None = None
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -168,11 +195,16 @@ class VggtPerspectiveTransform(LightningModule):
         )
         self.model.eval()
         self.model.requires_grad_(False)
+        
+        self.output_dir = output_dir
 
-        self._projector = OTCProjector(face_size=VGGT_TARGET_SIZE)
+        self._projector = OTCProjector(face_size=VGGT_TARGET_SIZE, alpha=1e-9)
         face_weights = th.tensor([0.25, 0.25, 0.25, 0.25], dtype=th.float32)
         self.face_weights: th.Tensor
         self.register_buffer("face_weights", face_weights, persistent=False)
+        
+        self._face_rots: th.Tensor
+        self.register_buffer("_face_rots", cube_face_relative_rotations()[[0, 1, 4, 5]], persistent=False)
 
         self.depth_frames_chunk_size = 2
 
@@ -246,7 +278,7 @@ class VggtPerspectiveTransform(LightningModule):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _quat_to_mat_xyzw(quat: th.Tensor) -> th.Tensor:
+    def _quat_to_mat(quat: th.Tensor) -> th.Tensor:
         quat = quat / quat.norm(dim=-1, keepdim=True).clamp_min(th.finfo(quat.dtype).eps)
         x, y, z, w = th.unbind(quat, dim=-1)
 
@@ -270,6 +302,45 @@ class VggtPerspectiveTransform(LightningModule):
         return th.stack((row0, row1, row2), dim=-2)
 
     @staticmethod
+    def _mat_to_quat_xyzw(mat: th.Tensor) -> th.Tensor:
+        # mat: (..., 3, 3) -> (..., 4) quaternion in (x, y, z, w)
+        m00, m01, m02 = mat[..., 0, 0], mat[..., 0, 1], mat[..., 0, 2]
+        m10, m11, m12 = mat[..., 1, 0], mat[..., 1, 1], mat[..., 1, 2]
+        m20, m21, m22 = mat[..., 2, 0], mat[..., 2, 1], mat[..., 2, 2]
+
+        eps = th.finfo(mat.dtype).eps
+        t0 = 1.0 + m00 - m11 - m22
+        t1 = 1.0 - m00 + m11 - m22
+        t2 = 1.0 - m00 - m11 + m22
+        t3 = 1.0 + m00 + m11 + m22
+        t2 = 1.0 - m00 - m11 + m22
+
+        t = th.stack((t0, t1, t2, t3), dim=-1).clamp_min(eps)        # (..., 4)
+        idx = t.argmax(dim=-1)                                       # (...)
+
+        s = 2.0 * th.sqrt(t.gather(-1, idx.unsqueeze(-1)).squeeze(-1)).clamp_min(eps)  # (...)
+
+        s01 = m01 + m10; s02 = m02 + m20; s12 = m12 + m21
+        d21 = m21 - m12; d20 = m02 - m20; d10 = m10 - m01
+
+        q0 = th.stack((0.25 * s,  s01 / s,  s02 / s,  d21 / s), dim=-1)  # x largest
+        q1 = th.stack((s01 / s,  0.25 * s,  s12 / s,  d20 / s), dim=-1)  # y largest
+        q2 = th.stack((s02 / s,  s12 / s,  0.25 * s,  d10 / s), dim=-1)  # z largest
+        q3 = th.stack((d21 / s,  d20 / s,  d10 / s,  0.25 * s), dim=-1)  # w largest
+
+        oh = th.nn.functional.one_hot(idx, num_classes=4).to(mat.dtype)
+        quat = (
+            q0 * oh[..., 0].unsqueeze(-1)
+          + q1 * oh[..., 1].unsqueeze(-1)
+          + q2 * oh[..., 2].unsqueeze(-1)
+          + q3 * oh[..., 3].unsqueeze(-1)
+        )
+
+        quat = quat / quat.norm(dim=-1, keepdim=True).clamp_min(eps)
+        return quat
+
+
+    @staticmethod
     def _geodesic_so3(target: th.Tensor, predicted: th.Tensor) -> th.Tensor:
         delta = target.transpose(-1, -2) @ predicted
         trace = th.diagonal(delta, dim1=-2, dim2=-1).sum(dim=-1)
@@ -284,13 +355,15 @@ class VggtPerspectiveTransform(LightningModule):
         return quat, translation, fov
 
     def _mean_rotation_markley(self, quat: th.Tensor) -> th.Tensor:
+        # Rotate face to canonical orientation
+        quat = self._mat_to_quat_xyzw(self._quat_to_mat(quat) @ self._face_rots.permute(0, 2, 1)[None, ...].to(quat))
         weights = (self.face_weights / self.face_weights.sum()).to(quat)
         weight_view = weights.view(1, weights.shape[0], 1)
         weighted = quat * weight_view
         k_mat = th.einsum("vni,vnj->vij", quat, weighted)
         eigvals, eigvecs = th.linalg.eigh(k_mat.float())
         dominant = eigvecs[..., -1].to(dtype=quat.dtype)
-        return self._quat_to_mat_xyzw(dominant)
+        return self._quat_to_mat(dominant)
 
     @staticmethod
     def _assemble_se3(rotation: th.Tensor, translation: th.Tensor) -> th.Tensor:
@@ -310,6 +383,52 @@ class VggtPerspectiveTransform(LightningModule):
     def _camera_centers(mats: th.Tensor) -> th.Tensor:
         inv = th.linalg.inv(mats)
         return inv[..., :3, 3]
+    
+    def _write_poses(
+        self,
+        id: str,
+        rots: th.Tensor,
+        trans: th.Tensor, 
+        rots_faces: th.Tensor,
+        trans_faces: th.Tensor
+    ) -> None:
+        # If no output, skip writing poses
+        if self.output_dir is None:
+            return
+
+        # Create output structure
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = self.output_dir / f"{id}.pt"
+
+        # Prepare pose matrices
+        seq_len = rots.shape[0]
+        face_len = rots_faces.shape[1]
+        scale = th.tensor([0, 0, 0, 1], dtype=th.float32)
+
+        # TODO: Verify that this way of indexing is correct
+        poses = th.empty([seq_len, 4, 4], dtype=th.float32)
+        poses[:, :3, :3] = rots.to("cpu", th.float32)
+        poses[:, :3, 3] = trans.to("cpu", th.float32)
+        poses[:, 3, :] = scale
+
+        # TODO: Verify that this way of indexing is correct
+        poses_faces = th.empty([seq_len, face_len, 4, 4], dtype=th.float32)
+        poses_faces[:, :, :3, :3] = rots_faces.to("cpu", th.float32)
+        poses_faces[:, :, :3, 3] = trans_faces.to("cpu", th.float32)
+        poses_faces[:, :, 3, :] = scale
+        
+        order_persp = ("+X", "-X", "+Z", "-Z")
+        assert len(order_persp) == len(self.face_weights), "Unexpected amount of perspective faces"
+
+        # Store as dictionary
+        th.save(
+            {
+                "poses": poses,
+                "poses_faces": poses_faces,
+                "order_faces": order_persp,
+            },
+            output_file
+        )
 
     # ------------------------------------------------------------------
     # Loss helpers
@@ -324,18 +443,6 @@ class VggtPerspectiveTransform(LightningModule):
         mask = (alpha > 0.5).float() * (depth_gt < 0.99).float()
         residual = (depth_gt - depth_pred.unsqueeze(2)) ** 2
         return (residual * mask).mean()
-
-    @staticmethod
-    def _write_positions(stage: str, preds_t: th.Tensor, target_t: th.Tensor) -> None:
-        for suffix, tensor in (("pred", preds_t), ("target", target_t)):
-            path = Path(f"positions_{suffix}_{stage}.txt")
-            assert tensor.shape[-1] == 3, "Expected translation vectors with 3 components"
-            flat = tensor.detach().cpu().reshape(-1, 3)
-            with path.open("a", encoding="utf-8") as handle:
-                for vector in flat:
-                    x, y, z = vector.tolist()
-                    handle.write(f"{x:.6f}, {y:.6f}, {z:.6f}\n")
-                handle.write("---\n")
 
     # ------------------------------------------------------------------
     # Core logic
@@ -357,6 +464,7 @@ class VggtPerspectiveTransform(LightningModule):
         depth_faces = preds["depth"][0].view(views, len(self.face_weights), VGGT_TARGET_SIZE, VGGT_TARGET_SIZE)
 
         quat_faces, translation_faces, _ = self._from_pose_encoding(pose_faces)
+        rotation_faces = self._quat_to_mat(quat_faces)
 
         rotation_merged = self._mean_rotation_markley(quat_faces)
         weights = self.face_weights.to(translation_faces).view(1, len(self.face_weights), 1)
@@ -388,7 +496,7 @@ class VggtPerspectiveTransform(LightningModule):
 
         total_loss = 0.2 * depth_loss + 0.4 * rot_loss + 0.4 * trans_loss
 
-        self._write_positions(stage, centers_pred_rel, centers_target_rel)
+        self._write_poses(sample.id, rotation_merged, translation_merged, rotation_faces, translation_faces)
 
         prefix = TRAIN_PREFIX if stage == "train" else VALIDATION_PREFIX
         metrics = {
@@ -402,12 +510,14 @@ class VggtPerspectiveTransform(LightningModule):
 
     def training_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
         metrics = self._shared_step(batch, stage="train")
-        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=True)
+        assert len(batch) == 1, "Batch size > 1 not supported yet"
+        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=True, batch_size=1)
         return metrics["loss"]
 
     def validation_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
         metrics = self._shared_step(batch, stage="val")
-        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=False)
+        assert len(batch) == 1, "Batch size > 1 not supported yet"
+        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=False, batch_size=1)
         return metrics["loss"]
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:

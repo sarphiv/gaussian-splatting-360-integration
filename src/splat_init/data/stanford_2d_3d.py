@@ -93,7 +93,7 @@ def _room_to_kebab(room_id: str) -> str:
 def _canonical_origin(area_dir: Path, room_id: str) -> str:
     """Compose the canonical origin string for a room in an area."""
 
-    return f"stanford-2d-3d/{_kebab_case_area(area_dir)}/{_room_to_kebab(room_id)}"
+    return f"stanford-2d-3d.{_kebab_case_area(area_dir)}.{_room_to_kebab(room_id)}"
 
 
 def _stack_with_channel(imgs: list[Tensor]) -> Tensor:

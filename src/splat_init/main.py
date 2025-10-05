@@ -102,7 +102,7 @@ def main() -> None:
     dm = _build_datamodule(args)
 
     # Model
-    model = VggtPerspectiveTransform()
+    model = VggtPerspectiveTransform(output_dir=args.model.output_dir)
     # model = VggtNaiveEquirectangular()
 
     # Trainer

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from os import environ
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Sequence
 from lightning.fabric.plugins.precision.precision import (
@@ -21,8 +22,7 @@ class ModelArgs:
     Extend as the model matures. Defaults target a stable baseline.
     """
 
-    learning_rate: float = 1e-3
-    weight_decay: float = 1e-6
+    output_dir: Path | None = Path(datetime.now(timezone.utc).strftime("outputs/%Y-%m-%dT%H:%M:%S"))
 
 
 @dataclass(frozen=True)
