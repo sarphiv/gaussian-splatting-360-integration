@@ -13,8 +13,11 @@ from configs.training_args import Args
 from configs.constants import VGGT_TARGET_SIZE
 
 
-# PRED_DIR = Path("outputs/2025-10-05T17:30:48")
-PRED_DIR = Path("outputs/2025-10-05T18:20:01")
+# PRED_PATH = Path("outputs/2025-10-05T17:30:48")
+# PRED_PATH = Path("outputs/2025-10-05T18:20:01") # Perspective transform
+# PRED_PATH = Path("outputs/2025-10-08T22:57:20") # Equirectangular
+# PRED_PATH = Path("outputs/2025-10-08T23:01:09") # Perspective transform
+PRED_PATH = Path("outputs/2025-10-09T01:09:55/NON-COMPLIANT-FORMAT.area_4.conferenceRoom_3.pt") # Perspective direct
 DATASET_IDX = 1
 SCENE_IDX = 5
 
@@ -74,7 +77,7 @@ sample_env = datasets[DATASET_IDX].get_perspective(SCENE_IDX)
 sample_gt = datasets[DATASET_IDX][SCENE_IDX]
 assert sample_env.focal_length is not None
 
-preds = cast(dict[str, th.Tensor], th.load(PRED_DIR / f"{sample_gt.id}.pt"))
+preds = cast(dict[str, th.Tensor], th.load(PRED_PATH / f"{sample_gt.id}.pt" if PRED_PATH.is_dir() else PRED_PATH, map_location="cpu"))
 procrustes_align = procrustes_analysis(preds["poses"][:, :3, 3], sample_gt.pose.inverse()[:, :3, 3])
 
 pos_error_total = 0.0
@@ -137,6 +140,10 @@ for seq_idx in range(len(sample_env.pose)):
     
 
 # Draw poses
+rgb_faces, alpha_faces, _ = projector(sample_gt.rgba.to("cuda", th.bfloat16), None)
+rgba_faces = th.concat([rgb_faces, alpha_faces], dim=2).permute(0, 1, 3, 4, 2).to("cpu", th.float32).numpy() # [S,6,H,W,4]
+rgba_faces = rgba_faces[:, [0, 1, 4, 5], ...] # Discard top and bottom faces
+
 for seq_idx in range(len(sample_gt.pose)):
     # Log ground truth
     pose_gt = sample_gt.pose[seq_idx].inverse()
@@ -174,10 +181,14 @@ for seq_idx in range(len(sample_gt.pose)):
 
 
     # Log perspective prediction
-    rgb, alpha, _ = projector(sample_gt.rgba.to("cuda", th.bfloat16), None)
-    rgba = th.concat([rgb, alpha], dim=2).permute(0, 1, 3, 4, 2).to("cpu", th.float32).numpy() # [S,6,H,W,4]
-    rgba = rgba[:, [0, 1, 4, 5], ...] # Discard top and bottom faces
-    
+    if "poses_faces" not in preds:
+        continue
+
+    if "images_faces" not in preds:
+        rgba = rgba_faces[seq_idx]
+    else:
+        rgba = [th.cat((img.permute(1, 2, 0), th.full((*img.shape[1:], 1), 1.0)), dim=-1).numpy() for img in preds["images_faces"][seq_idx]]
+
     pos_error_local = 0.0
 
     n_faces = preds["poses_faces"].shape[1]
@@ -188,7 +199,7 @@ for seq_idx in range(len(sample_gt.pose)):
         rr.log(f"world/pred/persp/{seq_idx}/{i}/image", rr.Pinhole(resolution=(VGGT_TARGET_SIZE, VGGT_TARGET_SIZE), focal_length=VGGT_TARGET_SIZE/2, image_plane_distance=SIZE_PERSP * 10))
         rr.log(f"world/pred/persp/{seq_idx}/{i}", rr.Transform3D(translation=pos_persp, mat3x3=rot_persp))
         rr.log(f"world/pred/persp/{seq_idx}/{i}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_PERSP, radii=SIZE_PERSP))
-        rr.log(f"world/pred/persp/{seq_idx}/{i}/image/rgb", rr.Image(rgba[seq_idx, i], color_model=rr.ColorModel.RGBA))
+        rr.log(f"world/pred/persp/{seq_idx}/{i}/image/rgb", rr.Image(rgba[i], color_model=rr.ColorModel.RGBA))
 
         rr.log(f"world/error/persp/{seq_idx}/{i}", rr.Arrows3D(vectors=pos_main - pos_persp, origins=pos_persp, colors=COLOR_PERSP, radii=SIZE_PERSP / 10))
 

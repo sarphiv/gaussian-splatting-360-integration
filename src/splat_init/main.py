@@ -103,7 +103,7 @@ def main() -> None:
 
     # Model
     model = VggtPerspectiveTransform(output_dir=args.model.output_dir)
-    # model = VggtNaiveEquirectangular()
+    # model = VggtNaiveEquirectangular(output_dir=args.model.output_dir)
 
     # Trainer
     torch.set_float32_matmul_precision("medium")

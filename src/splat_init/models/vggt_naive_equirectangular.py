@@ -36,12 +36,18 @@ class _ProcessedSample:
 class VggtNaiveEquirectangular(LightningModule):
     """LightningModule wrapping VGGT for direct equirectangular supervision."""
 
-    def __init__(self, model_url: Path = Path("facebook/VGGT-1B")) -> None:
+    def __init__(
+        self,
+        model_url: Path = Path("facebook/VGGT-1B"),
+        output_dir: Path | None = None
+    ) -> None:
         super().__init__()
         self.save_hyperparameters()
 
         self.model = VGGT.from_pretrained(model_url)
         self.model.eval()
+
+        self.output_dir = output_dir
 
     # ------------------------------------------------------------------
     # Preprocessing
@@ -271,24 +277,39 @@ class VggtNaiveEquirectangular(LightningModule):
         inv = th.linalg.inv(mats)
         return inv[..., :3, 3]
 
-    def _write_positions(self, stage: str, preds_t: th.Tensor, target_t: th.Tensor) -> None:
-        """Append predicted and target translations to disk for inspection."""
+    def _write_poses(
+        self,
+        ids: list[str],
+        rots: th.Tensor,
+        trans: th.Tensor
+    ) -> None:
+        # If no output, skip writing poses
+        if self.output_dir is None:
+            return
 
-        pred_path = Path(f"positions_pred_{stage}.txt")
-        target_path = Path(f"positions_target_{stage}.txt")
-        for path, tensor in ((pred_path, preds_t), (target_path, target_t)):
-            assert tensor.shape[-1] == 3, "Expected 3D translation vectors"
-            flat = tensor.detach().cpu().reshape(-1, 3)
-            with path.open("a", encoding="utf-8") as handle:
-                for vector in flat:
-                    x, y, z = vector.tolist()
-                    handle.write(f"{x:.6f}, {y:.6f}, {z:.6f}\n")
-                handle.write("---\n")
+        # Create output structure
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        for id, r, t in zip(ids, rots, trans):
+            output_file = self.output_dir / f"{id}.pt"
+
+            # Prepare pose matrices
+            seq_len = r.shape[0]
+            scale = th.tensor([0, 0, 0, 1], dtype=th.float32)
+
+            poses = th.empty([seq_len, 4, 4], dtype=th.float32)
+            poses[:, :3, :3] = r.to("cpu", th.float32)
+            poses[:, :3, 3] = t.to("cpu", th.float32)
+            poses[:, 3, :] = scale
+
+            # Store as dictionary
+            th.save({"poses": poses}, output_file)
+
 
     def _shared_step(self, batch: list[SceneSample], stage: str) -> dict[str, th.Tensor]:
         """Compute losses and auxiliary metrics for one step."""
 
-        assert len(batch) > 0, "Batch must not be empty"
+        assert len(batch) == 1, "Batch size > 1 not supported yet"
 
         rgb_inputs, processed, view_counts = self._prepare_batch(batch)
         preds = self.forward(rgb_inputs)
@@ -296,8 +317,9 @@ class VggtNaiveEquirectangular(LightningModule):
         pose_sequences, depth_sequences = self._gather_predictions(preds, view_counts)
 
         depth_losses, rot_losses, trans_losses = [], [], []
-        pred_logs: list[th.Tensor] = []
-        target_logs: list[th.Tensor] = []
+        # NOTE: Log handling only supports batch size 1 for now
+        translation_logs: list[th.Tensor] = []
+        rotation_logs: list[th.Tensor] = []
 
         for pose_enc, depth_out, item, count in zip(pose_sequences, depth_sequences, processed, view_counts):
             gt_depth = item.depth[:count]
@@ -312,9 +334,8 @@ class VggtNaiveEquirectangular(LightningModule):
             target_centers_rel = target_centers - target_centers[:1]
 
             pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
-            pred_rot_rel = self._relative_rotations(pose_mats_pred)
-            pred_centers = self._camera_centers(pose_mats_pred)
-            pred_centers_rel = pred_centers - pred_centers[:1]
+            pred_rot_rel = pose_mats_pred[:, :3, :3]
+            pred_centers_rel = pose_mats_pred[:, :3, 3]
 
             if count > 1:
                 geodesic = self._geodesic_so3(target_rot[1:], pred_rot_rel[1:]).mean()
@@ -327,17 +348,14 @@ class VggtNaiveEquirectangular(LightningModule):
             rot_losses.append(geodesic)
             trans_losses.append(translation_loss)
 
-            pred_logs.append(pred_centers_rel)
-            target_logs.append(target_centers_rel)
+            translation_logs.append(pred_centers_rel)
+            rotation_logs.append(pred_rot_rel)
 
         loss_depth = th.stack(depth_losses).mean()
         loss_rot = th.stack(rot_losses).mean()
         loss_trans = th.stack(trans_losses).mean()
 
-        if pred_logs:
-            pred_concat = th.cat(pred_logs, dim=0)
-            target_concat = th.cat(target_logs, dim=0)
-            self._write_positions(stage, pred_concat, target_concat)
+        self._write_poses([b.id for b in batch], th.cat(rotation_logs)[None, ...], th.cat(translation_logs)[None, ...])
 
         loss = 0.2 * loss_depth + 0.4 * loss_rot + 0.4 * loss_trans
 
@@ -353,12 +371,12 @@ class VggtNaiveEquirectangular(LightningModule):
 
     def training_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
         metrics = self._shared_step(batch, stage="train")
-        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=True)
+        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=True, batch_size=1)
         return metrics["loss"]
 
     def validation_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
         metrics = self._shared_step(batch, stage="val")
-        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=False)
+        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=False, batch_size=1)
         return metrics["loss"]
 
     def configure_optimizers(self) -> OptimizerLRSchedulerConfig:

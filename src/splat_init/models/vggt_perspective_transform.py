@@ -471,9 +471,8 @@ class VggtPerspectiveTransform(LightningModule):
         translation_merged = (translation_faces * weights).sum(dim=1)
 
         mats_pred = self._assemble_se3(rotation_merged, translation_merged)
-        rotation_rel = self._relative_rotations(mats_pred)
-        centers_pred = self._camera_centers(mats_pred)
-        centers_pred_rel = centers_pred - centers_pred[:1]
+        rotation_rel = mats_pred[:, :3, :3]
+        centers_pred_rel = mats_pred[..., :3, 3]
 
         pose_ref_inv = th.linalg.inv(projected.pose[0])
         pose_rel = projected.pose @ pose_ref_inv
