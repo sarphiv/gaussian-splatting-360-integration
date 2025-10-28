@@ -1,0 +1,54 @@
+# Install system packages
+FROM nvidia/cuda:12.8.0-devel-ubuntu24.04
+
+RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
+    --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    DEBIAN_FRONTEND=noninteractive apt-get update -y && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    git \
+    sudo \
+    wget \
+    nvtop \
+    ffmpeg \
+    libsm6 \
+    libxext6 \
+    libxkbcommon-x11-0 \
+    libgtk-3-dev \
+    zlib1g-dev \
+    libeigen3-dev \
+    build-essential \
+    ninja-build
+
+
+# Set up non-root user
+RUN echo ubuntu ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/ubuntu && \
+    chmod 0440 /etc/sudoers.d/ubuntu
+USER ubuntu
+WORKDIR /workspace
+
+
+# Set up CLI
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/v1.2.1/zsh-in-docker.sh)" -- \
+    -p git \
+    -p https://github.com/zsh-users/zsh-autosuggestions \
+    -p https://github.com/zsh-users/zsh-completions \
+    -p jj \
+    -p uv
+
+
+# Set up Python environment
+ENV XDG_RUNTIME_DIR=/tmp
+ENV PYTHONUNBUFFERED=True
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_LINK_MODE=copy
+RUN --mount=target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,type=cache,sharing=locked \
+    --mount=source=.python-version,target=.python-version,type=bind \
+    --mount=source=uv.lock,target=uv.lock,type=bind \
+    --mount=source=pyproject.toml,target=pyproject.toml,type=bind \
+    sudo chown ubuntu:ubuntu /home/ubuntu/.cache && \
+    # NOTE: PyTorch does not seem to pick up on the GPU during build, so providing the compute capabilities manually for RTX 3090
+    TORCH_CUDA_ARCH_LIST="8.6+PTX" uv sync --no-install-project --locked
+
+ENV PATH="/workspace/.venv/bin:$PATH"

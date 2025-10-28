@@ -1,0 +1,10 @@
+services:
+  workspace:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Containerfile
+    volumes:
+      - /workspace/.venv/
+      - "..:/workspace:rw"
+      - "${DATASET_ROOT}:${DATASET_ROOT}:r"
+    env_file: .env
