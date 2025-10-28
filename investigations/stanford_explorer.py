@@ -104,7 +104,7 @@ rr.send_blueprint(rrb.Blueprint(
     rrb.TimePanel(expanded=False)
 ))
 
-rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_UP, static=True)
 rr.set_time("time", timestamp=0)
 
 

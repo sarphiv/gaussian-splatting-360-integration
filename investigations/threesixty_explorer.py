@@ -9,6 +9,7 @@ import rerun.blueprint as rrb
 import torch as th
 import torchvision.transforms.functional as tvf
 import numpy as np
+import cv2
 
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset
 from splat_init.models.vggt_perspective_transform import OTCProjector, cube_face_relative_rotations
@@ -23,10 +24,9 @@ from configs.constants import VGGT_TARGET_SIZE
 # PRED_PATH = Path("outputs/2025-10-09T01:09:55/NON-COMPLIANT-FORMAT.area_4.conferenceRoom_3.pt") # Perspective direct
 SCENE_IDX = 0
 
-DEPTH_MAX_DISTANCE = 20.0
-POINTS_STRIDE = 10
+POINTS_STRIDE = 8
 
-EQUIRECT_SHAPE = (200, 100)  # Width, height
+EQUIRECT_SHAPE = (800, 400)  # Width, height
 SIZE_GT = 0.03
 SIZE_PRED = 0.03
 SIZE_PERSP = 0.01
@@ -104,78 +104,61 @@ rr.send_blueprint(rrb.Blueprint(
     rrb.TimePanel(expanded=False)
 ))
 
-rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_UP, static=True)
 rr.set_time("time", timestamp=0)
 
 
 # Reconstruct environment
+pos_prev = None
 for seq_idx in range(len(sample_gt.pose)):
-# for seq_idx in range(3):
     # Retrieve data
     pose = sample_gt.pose[seq_idx].inverse()
     pos, rot = pose[:3, 3], pose[:3, :3]
 
-    rgb = sample_gt.rgba[seq_idx].numpy()
-    height, width = rgb.shape[1], rgb.shape[2]
-    depth = sample_gt.depth[seq_idx].numpy()
-    depth = depth# * (depth < DEPTH_MAX_DISTANCE)
+    rgb = sample_gt.rgba[seq_idx].permute(1, 2, 0).numpy()
+    height, width = rgb.shape[:2]
+    depth = sample_gt.depth[seq_idx, 0].numpy()
 
     # Create point cloud
-    d = depth[0, ::POINTS_STRIDE, ::POINTS_STRIDE].reshape(-1)
+    d = depth[::POINTS_STRIDE, ::POINTS_STRIDE].reshape(-1)
     v = (np.arange(0, height, POINTS_STRIDE, dtype=np.float32) + 0.5) / height
     u = (np.arange(0, width, POINTS_STRIDE, dtype=np.float32) + 0.5) / width
     lat, lon = np.meshgrid(
-        np.pi / 2 - np.pi * v,
+        -np.pi / 2 + np.pi * v,
         -np.pi + 2 * np.pi * u,
         indexing="ij",
     )
     lat, lon = lat.reshape(-1), lon.reshape(-1)
     x = d * np.cos(lat) * np.sin(lon)
-    y = d * np.cos(lat) * np.cos(lon)
-    z = d * np.sin(lat)
-    # x, y, z = d * np.cos(lat) * np.cos(lon), d * np.cos(lat) * np.sin(lon), d * np.sin(lat)
-    # x = d * np.cos(lat) * np.sin(lon)
-    # y = d * np.sin(lat)
-    # z = d * np.cos(lat) * np.cos(lon)
+    y = d * np.sin(lat)
+    z = d * np.cos(lat) * np.cos(lon)
 
-    # TODO: The xy orientation is correct initially, but the rot matrix makes the xy plane suddenly lay in the z direction
-    rot[:, 1], rot[:, 2] = rot[:, 2], -rot[:, 1].clone()
-
-    points = np.stack((x, y, z), axis=-1) @ rot.numpy().T + pos.numpy()
-    colors = rgb[:, ::POINTS_STRIDE, ::POINTS_STRIDE].transpose(1, 2, 0).reshape(-1, 4)
+    points = np.stack((x, y, z), axis=-1)
+    colors = rgb[::POINTS_STRIDE, ::POINTS_STRIDE, :].reshape(-1, 4)
 
     # Log environment
-    # rr.log(f"world/env/{seq_idx}/image", rr.Pinhole(resolution=(width, height), focal_length=f))
-    # rr.log(f"world/env/{seq_idx}", rr.Transform3D(translation=pos, mat3x3=rot))
-
+    rr.log(f"world/env/{seq_idx}", rr.Transform3D(translation=pos, mat3x3=rot))
+    rr.log(f"world/env/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_GT, radii=SIZE_GT))
+    rr.log(f"world/env/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_GT * 10))
+    rr.log(f"world/env/{seq_idx}/image/rgb", rr.Image(cv2.resize(rgb, dsize=EQUIRECT_SHAPE, interpolation=cv2.INTER_LINEAR), color_model=rr.ColorModel.RGBA)) # type: ignore[reportArgumentType]
     rr.log(f"world/env/{seq_idx}/points", rr.Points3D(points, colors=colors))
-    # rr.log(f"world/env/{seq_idx}/{face_idx}/image/rgb", rr.Image(rgba[seq_idx, face_idx].permute(1, 2, 0).numpy(), color_model=ColorModel.RGBA))
-    # rr.log(f"world/env/{seq_idx}/image/depth", rr.DepthImage(depth.numpy(), meter=1.0))
     
+    if pos_prev is not None:
+        rr.log(f"world/traj/{seq_idx-1}-{seq_idx}", rr.Arrows3D(vectors=pos - pos_prev, origins=pos_prev, colors=COLOR_GT, radii=SIZE_GT / 2, labels=[f"{th.linalg.norm(pos - pos_prev).item():.3f}m"]))
+    pos_prev = pos
+
 
 # # Draw poses
 # rgb_faces, alpha_faces, _ = projector(sample_gt.rgba.to("cuda", th.bfloat16), None)
 # rgba_faces = th.concat([rgb_faces, alpha_faces], dim=2).permute(0, 1, 3, 4, 2).to("cpu", th.float32).numpy() # [S,6,H,W,4]
 # rgba_faces = rgba_faces[:, [0, 1, 4, 5], ...] # Discard top and bottom faces
 
-pos_gt_prev = None
+
 
 for seq_idx in range(len(sample_gt.pose)):
-    # Log ground truth
+    # Get ground truth pose
     pose_gt = sample_gt.pose[seq_idx].inverse()
     pos_gt, rot_gt = pose_gt[:3, 3], pose_gt[:3, :3]
-
-    rgb = tvf.resize(sample_gt.rgba[seq_idx], list(EQUIRECT_SHAPE[::-1])).permute(1, 2, 0).clamp(0.0, 1.0).numpy()
-    # height, width = rgb.shape[1], rgb.shape[2]
-    rr.log(f"world/gt/{seq_idx}", rr.Transform3D(translation=pos_gt, mat3x3=rot_gt))
-    rr.log(f"world/gt/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_GT, radii=SIZE_GT))
-    rr.log(f"world/gt/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_GT * 10))
-    # rr.log(f"world/gt/{seq_idx}/image/rgb", rr.Image(rgb, color_model=rr.ColorModel.RGBA))
-    
-    if pos_gt_prev is not None:
-        rr.log(f"world/traj/{seq_idx-1}-{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_gt_prev, origins=pos_gt_prev, colors=COLOR_GT, radii=SIZE_GT / 5, labels=[f"{th.linalg.norm(pos_gt - pos_gt_prev).item():.3f}m"]))
-    pos_gt_prev = pos_gt
-
 
 #     # # TEMP: Checking for correct cube face rotations
 #     # rgb, alpha, depth = projector(sample_gt.rgba.to(th.device("cuda"), th.bfloat16), sample_gt.depth.to(th.device("cuda"), th.bfloat16))
