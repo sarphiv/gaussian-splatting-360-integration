@@ -33,8 +33,8 @@ def _stanford_callables(
 
 
 def _build_datamodule(args: Args) -> DataModule360:
-    train_fns = _stanford_callables(args.data.train_areas, args.data.max_sequence_length)
-    val_fns = _stanford_callables(args.data.val_areas, args.data.max_sequence_length) if args.data.val_areas else []
+    train_fns = _stanford_callables(args.data.stanford_train_areas, args.data.max_sequence_length)
+    val_fns = _stanford_callables(args.data.stanford_val_areas, args.data.max_sequence_length) if args.data.stanford_val_areas else []
 
     dm = DataModule360(
         train_datasets=train_fns,
@@ -111,7 +111,7 @@ def main() -> None:
 
     # Fit + Evaluate
     trainer.fit(model, dm)
-    if len(args.data.val_areas) > 0:
+    if len(args.data.stanford_val_areas) > 0:
         trainer.validate(model, dm)
 
 

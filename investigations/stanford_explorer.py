@@ -72,7 +72,7 @@ args_main = Args()
 
 projector = OTCProjector(face_size=VGGT_TARGET_SIZE, alpha=1e-9)
 
-datasets = [Stanford2D3DDataset(p, args_main.data.max_sequence_length, 12) for p in args_main.data.val_areas]
+datasets = [Stanford2D3DDataset(p, args_main.data.max_sequence_length, 12) for p in args_main.data.stanford_val_areas]
 sample_env = datasets[DATASET_IDX].get_perspective(SCENE_IDX)
 sample_gt = datasets[DATASET_IDX][SCENE_IDX]
 assert sample_env.focal_length is not None
