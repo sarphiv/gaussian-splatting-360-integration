@@ -26,5 +26,5 @@
     // ],
     "overrideCommand": true,
     "initializeCommand": "ln -rsf .env .devcontainer/.env",
-    "postCreateCommand": "uv sync --locked"
+    // "postCreateCommand": "uv sync --locked"
 }

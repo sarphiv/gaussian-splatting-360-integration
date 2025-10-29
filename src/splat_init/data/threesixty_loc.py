@@ -25,30 +25,30 @@ class ThreeSixtyLocDataset(Dataset[SceneSample]):
 
         search_dirs = [Path("query_360"), Path("mapping")]
         area_dirs = [f for f in self.data_dir.iterdir() if f.is_dir()]
-        seq_dirs = [seq_dir for a in area_dirs for s in search_dirs if (a / s).is_dir() for seq_dir in (a / s).iterdir() if seq_dir.is_dir()]
-        seq_dirs = [seq_dir for seq_dir in seq_dirs if (seq_dir / "depth").is_dir() or not self.depth_only]
+        scene_dirs = [seq_dir for a in area_dirs for s in search_dirs if (a / s).is_dir() for seq_dir in (a / s).iterdir() if seq_dir.is_dir()]
+        scene_dirs = [seq_dir for seq_dir in scene_dirs if (seq_dir / "depth").is_dir() or not self.depth_only]
 
-        self.ids = [f"360-loc.{seq_dir.parent.parent.name}.{seq_dir.name.replace('_', '-')}" for seq_dir in seq_dirs]
+        self.scene_ids = [f"360-loc.{seq_dir.parent.parent.name}.{seq_dir.name.replace('_', '-')}" for seq_dir in scene_dirs]
         self.rgb_paths = {
             id: sorted((seq_dir / "image").glob("*.jpg"))[::self.stride]
             for id, seq_dir
-            in zip(self.ids, seq_dirs)
+            in zip(self.scene_ids, scene_dirs)
         }
         self.depth_paths = {
             id: (sorted((seq_dir / "depth").glob("*.png")) if (seq_dir / "depth").is_dir() else [None] * len(self.rgb_paths[id]))[::self.stride]
             for id, seq_dir
-            in zip(self.ids, seq_dirs)
+            in zip(self.scene_ids, scene_dirs)
         }
         # Read poses as world to camera matrices
         self.poses = {
             id: [th.tensor(v).inverse() for _, v in sorted(json.loads((seq_dir / "camera_pose.json").read_text()).items(), key=lambda kv: kv[0])][::self.stride]
             for id, seq_dir
-            in zip(self.ids, seq_dirs)
+            in zip(self.scene_ids, scene_dirs)
         }
 
 
     def __len__(self) -> int:
-        return len(self.ids)
+        return len(self.scene_ids)
 
 
     @staticmethod
@@ -73,24 +73,29 @@ class ThreeSixtyLocDataset(Dataset[SceneSample]):
         return th.stack(cast(list[th.Tensor], Parallel(n_jobs=self.worker_count, backend="threading")(tasks)))
 
     def __getitem__(self, idx: int) -> SceneSample:
-        seq_id = self.ids[idx]
+        scene_id = self.scene_ids[idx]
 
-        load_rgba_tasks = (delayed(self._load_rgba)(p) for p in self.rgb_paths[seq_id])
+        load_rgba_tasks = (delayed(self._load_rgba)(p) for p in self.rgb_paths[scene_id])
         rgba = self._load_to_tensor(load_rgba_tasks)
 
-        load_depth_tasks = (delayed(self._load_depth)(p, (1, *rgba.shape[2:])) for p in self.depth_paths[seq_id])
+        load_depth_tasks = (delayed(self._load_depth)(p, (1, *rgba.shape[2:])) for p in self.depth_paths[scene_id])
         depth = self._load_to_tensor(load_depth_tasks)
 
-        pose = th.stack(self.poses[seq_id])
-
+        pose = th.stack(self.poses[scene_id])
 
         return SceneSample(
-            id=seq_id,
+            id=scene_id,
             rgba=rgba,
             depth=depth,
             pose=pose,
             focal_length=None
         )
+
+    def load_poses(self, idx: int) -> th.Tensor:
+        return th.stack(self.poses[self.scene_ids[idx]])
+    
+    def load_rgba(self, idx: int, seq_idx: int) -> th.Tensor:
+        return self._load_rgba(self.rgb_paths[self.scene_ids[idx]][seq_idx])
 
 
 

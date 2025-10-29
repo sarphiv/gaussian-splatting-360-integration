@@ -3,8 +3,12 @@ services:
     build:
       context: ..
       dockerfile: .devcontainer/Containerfile
+      args:
+        TORCH_CUDA_ARCH_LIST:
+    env_file: .env
     volumes:
       - /workspace/.venv/
+      - /workspace/vendor/
+      - /home/ubuntu/.cache/torch/
       - "..:/workspace:rw"
       - "${DATASET_ROOT}:${DATASET_ROOT}:r"
-    env_file: .env

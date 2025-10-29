@@ -224,3 +224,6 @@ __marimo__/
 /wandb/
 /outputs/*
 !/outputs/.gitkeep
+
+# Submodules
+/vendor/

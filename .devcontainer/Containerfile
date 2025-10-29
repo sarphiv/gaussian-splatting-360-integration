@@ -13,7 +13,14 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     ffmpeg \
     libsm6 \
     libxext6 \
-    libxkbcommon-x11-0 \
+    '^libxcb.*-dev' \
+    libx11-xcb-dev \
+    libglu1-mesa-dev \
+    libxrender-dev \
+    libxi-dev \
+    libxkbcommon-dev \
+    libxkbcommon-x11-dev \
+    # libxkbcommon-x11-0 \
     libgtk-3-dev \
     zlib1g-dev \
     libeigen3-dev \
@@ -43,12 +50,20 @@ ENV XDG_RUNTIME_DIR=/tmp
 ENV PYTHONUNBUFFERED=True
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
+ARG TORCH_CUDA_ARCH_LIST
+ENV TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
+ENV PATH="/workspace/.venv/bin:$PATH"
+COPY vendor/ vendor/
 RUN --mount=target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,type=cache,sharing=locked \
+    --mount=target=/home/ubuntu/.cache/torch/hub,uid=1000,gid=1000,type=cache,sharing=locked \
     --mount=source=.python-version,target=.python-version,type=bind \
     --mount=source=uv.lock,target=uv.lock,type=bind \
     --mount=source=pyproject.toml,target=pyproject.toml,type=bind \
+    --mount=source=README.md,target=README.md,type=bind \
+    --mount=source=src,target=src,type=bind \
     sudo chown ubuntu:ubuntu /home/ubuntu/.cache && \
-    # NOTE: PyTorch does not seem to pick up on the GPU during build, so providing the compute capabilities manually for RTX 3090
-    TORCH_CUDA_ARCH_LIST="8.6+PTX" uv sync --no-install-project --locked
+    sudo chown -R ubuntu:ubuntu vendor && \
+    uv sync --locked && \
+    vipe --version
 
-ENV PATH="/workspace/.venv/bin:$PATH"
+RUN sudo chown -R ubuntu:ubuntu /home/ubuntu/.cache
