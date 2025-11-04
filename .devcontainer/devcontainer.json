@@ -25,6 +25,5 @@
     //     "--shm-size=4gb"
     // ],
     "overrideCommand": true,
-    "initializeCommand": "ln -rsf .env .devcontainer/.env",
-    // "postCreateCommand": "uv sync --locked"
+    "initializeCommand": "ln -rsf .env .devcontainer/.env"
 }
