@@ -12,3 +12,4 @@ services:
       - /home/ubuntu/.cache/torch/
       - "..:/workspace:rw"
       - "${DATASET_ROOT}:${DATASET_ROOT}:r"
+      - "~/.codex/:/home/ubuntu/.codex/:rw"
