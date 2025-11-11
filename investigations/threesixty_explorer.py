@@ -1,15 +1,19 @@
 from pathlib import Path
 from dataclasses import dataclass
+from turtle import forward
 from typing import cast, Callable
 from os import environ
-from math import pi, ceil
+from math import pi, ceil, degrees
 
 import rerun as rr
 import rerun.blueprint as rrb
 import torch as th
 import torchvision.transforms.functional as tvf
 import numpy as np
+from loguru import logger
 import cv2
+from tqdm import tqdm
+from kornia.geometry.conversions import rotation_matrix_to_axis_angle, axis_angle_to_rotation_matrix
 
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset
 from splat_init.models.vggt_perspective_transform import OTCProjector, cube_face_relative_rotations
@@ -64,6 +68,31 @@ def procrustes_analysis(pred: th.Tensor, target: th.Tensor) -> Callable[[th.Tens
     return procrustes_align
 
 
+def karcher_mean(rot: th.Tensor, verbose=False, max_iter=200, tol=1e-9) -> th.Tensor:
+    # Weiszfeld algorithm for Karcher mean
+    # Based on: Question 28, https://15462.courses.cs.cmu.edu/fall2021content/exercises/Solutions06.pdf
+    assert rot.shape[0] > 0, "Rotation tensor must have at least one element."
+    assert len(rot.shape) == 3, "Rotation tensor must be batched."
+
+    mean = axis_angle_to_rotation_matrix(rotation_matrix_to_axis_angle(rot).mean(dim=0)[None])
+
+    A_norm_prev = None
+    for _ in (pbar:= tqdm(range(max_iter), desc="Karcher Mean Iterations", disable=not verbose)):
+        A_i = rotation_matrix_to_axis_angle(rot @ mean.permute(0, 2, 1))
+        A = A_i.mean(dim=0)[None]
+        mean = axis_angle_to_rotation_matrix(0.5 * A) @ mean
+
+        A_norm = th.sqrt(th.sum(A**2))
+
+        pbar.set_postfix(loss=A_norm.item())
+
+        if A_norm_prev is not None and abs(A_norm.item() - A_norm_prev) < tol:
+            break
+        A_norm_prev = A_norm.item()
+
+    pbar.close()
+
+    return mean[0]
 
 
 args_main = Args()
@@ -158,6 +187,21 @@ procrustes_align = procrustes_analysis(preds[:, :3, 3], sample_full_gt_poses.inv
 
 
 pos_gt_prev = None
+rot_delta = karcher_mean(
+    sample_full_gt_poses.inverse()[:len(preds), :3, :3] @ procrustes_align(preds[:, :3, 3], preds[:, :3, :3])[1].inverse(),
+    verbose=True
+)
+
+# Investigate rotation delta
+x = th.tensor([1.0, 0.0, 0.0])
+y = th.tensor([0.0, 1.0, 0.0])
+z = th.tensor([0.0, 0.0, -1.0])
+rot = x@rot_delta
+rr.log("world/rot/delta", rr.Arrows3D(vectors=rot, origins=[0.0, 0.0, 0.0], colors=[1.0, 1.0, 1.0], radii=0.02, labels=["Delta"]))
+rr.log("world/rot/x", rr.Arrows3D(vectors=x, origins=[0.0, 0.0, 0.0], colors=[1.0, 0.0, 0.0], radii=0.02, labels=[f"x: {degrees(th.arccos((x * rot).sum()).item()):.3f}"]))
+rr.log("world/rot/y", rr.Arrows3D(vectors=y, origins=[0.0, 0.0, 0.0], colors=[0.0, 1.0, 0.0], radii=0.02, labels=[f"y: {degrees(th.arccos((y * rot).sum()).item()):.3f}"]))
+rr.log("world/rot/z", rr.Arrows3D(vectors=z, origins=[0.0, 0.0, 0.0], colors=[0.0, 0.0, 1.0], radii=0.02, labels=[f"-z: {degrees(th.arccos((z * rot).sum()).item()):.3f}"]))
+
 # for seq_idx in range(len(sample_gt.pose)):
 for seq_idx in range(len(preds)):
     # Get ground truth pose
@@ -172,6 +216,7 @@ for seq_idx in range(len(preds)):
     rr.log(f"world/gt/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_GT, radii=SIZE_GT))
     rr.log(f"world/gt/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_GT * 10))
     # rr.log(f"world/gt/{seq_idx}/image/rgb", rr.Image(cv2.resize(rgb, dsize=EQUIRECT_SHAPE, interpolation=cv2.INTER_LINEAR), color_model=rr.ColorModel.RGBA)) # type: ignore[reportArgumentType]
+    rr.log(f"world/gt/{seq_idx}/image/rgb", rr.Image(np.tile(np.array(COLOR_GT), (EQUIRECT_SHAPE[1], EQUIRECT_SHAPE[0], 1)), color_model=rr.ColorModel.RGB))
 
     if pos_gt_prev is not None:
         rr.log(f"world/traj/{seq_idx-1}-{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_gt_prev, origins=pos_gt_prev, colors=COLOR_GT, radii=SIZE_GT / 2))
@@ -191,15 +236,21 @@ for seq_idx in range(len(preds)):
 
 #     # Log main prediction
     pose_main = preds[seq_idx]
-    pos_main, rot_main = procrustes_align(pose_main[:3, 3], pose_main[:3, :3])
+    pos_main, rot_main = pose_main[:3, 3], pose_main[:3, :3]
+    pos_main, rot_main = procrustes_align(pos_main, rot_main)
+    rot_main = rot_delta @ rot_main
     pos_error = th.linalg.norm(pos_gt - pos_main).item()
 #     pos_error_total += pos_error
 
-    rr.log(f"world/pred/main/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_PRED * 10))
     rr.log(f"world/pred/main/{seq_idx}", rr.Transform3D(translation=pos_main, mat3x3=rot_main))
     rr.log(f"world/pred/main/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_PRED, radii=SIZE_PRED))
+    rr.log(f"world/pred/main/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_PRED * 10))
+    rr.log(f"world/pred/main/{seq_idx}/image/rgb", rr.Image(np.tile(np.array(COLOR_PRED), (EQUIRECT_SHAPE[1], EQUIRECT_SHAPE[0], 1)), color_model=rr.ColorModel.RGB))
 
     rr.log(f"world/error/main/{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_main, origins=pos_main, colors=COLOR_PRED, radii=SIZE_PRED / 10, labels=[f"{pos_error:.3f}m"]))
+
+
+
 
 
 #     # Log perspective prediction
