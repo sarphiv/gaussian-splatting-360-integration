@@ -22,9 +22,10 @@
     - Place the subtask file at `tasks/{task-name}/{subtask-name}.md` and fill them out accordingly.
     - The subtasks should be designed to run in parallel while minimizing risk of conflict between subagents.
     - Each new subtask is tied to one new subagent.
+    - You only define the subtask, the human will spawn the subagent, and let you know when a subtask is complete.
     - You work in the same loop of general plan, detailed plan, implement, review, repeat/complete.
-    - Except, your focus is broader and you spawn new subagents to do the implementation and review steps.
-    - Reviewing a subtask is a subtask itself, so spawn a new subagent and prepare a filled out subtask for it.
+    - Except, your focus is broader and you define new subagents to do the implementation and review steps. You do not implement or review code yourself.
+    - Reviewing a subtask is a subtask itself, so define a new subagent and prepare a filled out subtask for it.
     - Once a subtask is complete, read its task file, and use this to inform your next steps.
     - Update existing subtask files or create new ones as necessary.
     - Do not read other task directories in the `tasks/` directory.

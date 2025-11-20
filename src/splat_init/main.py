@@ -11,7 +11,7 @@ from lightning.pytorch.loggers import WandbLogger
 import torch
 
 from splat_init.data.datamodule_360 import DataModule360
-from splat_init.data.stanford_2d_3d import Stanford2D3DDataset
+from splat_init.data.stanford_2d_3d import Stanford2D3DDataset, SceneSample
 from splat_init.models.vggt_perspective_transform import VggtPerspectiveTransform
 from splat_init.models.vggt_naive_equirectangular import VggtNaiveEquirectangular
 from configs.training_args import Args
@@ -29,7 +29,7 @@ def _stanford_callables(
 ) -> list[Callable[[], Stanford2D3DDataset]]:
     """Create dataset constructors for provided Stanford area directories."""
 
-    return [lambda p=p: Stanford2D3DDataset(p, max_sequence_length) for p in paths]
+    return [lambda p=p: Stanford2D3DDataset(SceneSample, p, max_sequence_length) for p in paths]
 
 
 def _build_datamodule(args: Args) -> DataModule360:

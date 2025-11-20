@@ -15,9 +15,10 @@ from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
 
 
 class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](Dataset[T]):
-    def __init__(self, data_dir: Path, stride: int = 1, depth_required: bool = True, worker_count: int = 1) -> None:
+    def __init__(self, output_type: type[T], data_dir: Path, stride: int = 1, depth_required: bool = True, worker_count: int = 1) -> None:
         super().__init__()
 
+        self.output_type = output_type
         self.data_dir = data_dir
         self.stride = stride
         self.depth_only = depth_required
@@ -106,16 +107,18 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](Dataset[T]):
             self.worker_count
         )
 
-        if T is SceneSampleLazy:
-            return SceneSampleLazy(
+        if self.output_type is SceneSampleLazy:
+            output = SceneSampleLazy(
                 id=scene_id,
-                get_item_range=loader,
-                item_count=len(self.poses[scene_id])
+                loader=loader,
+                length=len(self.poses[scene_id])
             )
-        elif T is SceneSample:
-            return loader(range(len(self.poses[scene_id])))
+        elif self.output_type is SceneSample:
+            output = loader(range(len(self.poses[scene_id])))
         else:
             raise TypeError(f"Unsupported dataset item type: {T}")
+
+        return cast(T, output)
 
 
     def load_poses(self, idx: int) -> th.Tensor:
@@ -130,7 +133,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     logger.info("Initializing dataset")
-    ds = ThreeSixtyLocDataset(Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=20, worker_count=4)
+    ds = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=20, worker_count=4)
 
     logger.info("Loading data")
     img = ds[0].depth[0].permute(1, 2, 0).numpy()

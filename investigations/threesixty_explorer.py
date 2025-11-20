@@ -14,7 +14,7 @@ from loguru import logger
 from tqdm import tqdm
 from kornia.geometry.conversions import rotation_matrix_to_axis_angle, axis_angle_to_rotation_matrix
 
-from splat_init.data.threesixty_loc import ThreeSixtyLocDataset
+from splat_init.data.threesixty_loc import ThreeSixtyLocDataset, SceneSample
 from splat_init.models.vggt_perspective_transform import OTCProjector, cube_face_relative_rotations
 from configs.training_args import Args
 from configs.constants import VGGT_TARGET_SIZE
@@ -98,8 +98,8 @@ args_main = Args()
 
 # projector = OTCProjector(face_size=VGGT_TARGET_SIZE, alpha=1e-9)
 
-dataset = ThreeSixtyLocDataset(Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=20, worker_count=4)
-dataset_full = ThreeSixtyLocDataset(Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=1, worker_count=4)
+dataset = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=20, worker_count=4)
+dataset_full = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=1, worker_count=4)
 sample_gt = dataset[SCENE_IDX]
 sample_full_gt_poses = dataset_full.load_poses(SCENE_IDX)
 
@@ -187,8 +187,7 @@ procrustes_align = procrustes_analysis(preds[:, :3, 3], sample_full_gt_poses.inv
 
 pos_gt_prev = None
 rot_delta = karcher_mean(
-    sample_full_gt_poses.inverse()[:len(preds), :3, :3] @ procrustes_align(preds[:, :3, 3], preds[:, :3, :3])[1].inverse(),
-    verbose=True
+    sample_full_gt_poses.inverse()[:len(preds), :3, :3] @ procrustes_align(preds[:, :3, 3], preds[:, :3, :3])[1].inverse()
 )
 
 # Investigate rotation delta

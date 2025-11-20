@@ -21,7 +21,7 @@ Returned sample
 """
 from __future__ import annotations
 
-from typing import Callable, Sequence
+from typing import Callable, Sequence, cast
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
@@ -42,88 +42,18 @@ from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
 _ROOM_REGEX = re.compile(r"camera_[^_]+_(?P<room>.+?)_frame_")
 
 
-def _extract_room_id(name: str) -> str:
-    """Extract the room token from a file name.
-
-    Example input: "camera_..._conferenceRoom_1_frame_equirectangular_domain_rgb.png"
-    or "camera_..._office_12_frame_4_domain_rgb.png".
-    Returns: "conferenceRoom_1"
-
-    Assumes the naming pattern contains a single room token between the camera
-    hash and the "_frame_" marker.
-    """
-
-    m = _ROOM_REGEX.search(name)
-    assert m is not None, f"room token not found in file name: {name}"
-    return m.group("room")
-
-
-def _prefix_up_to_domain(name: str) -> str:
-    """Return filename prefix up to the "_domain_" token (excluded).
-
-    This prefix is shared across modalities (rgb/depth/pose) for a given view.
-    """
-
-    head, sep, _ = name.partition("_domain_")
-    assert sep == "_domain_", f"'_domain_' not present in file name: {name}"
-    return head
-
-
-def _kebab_case_area(area_dir: Path) -> str:
-    """Convert an area directory name to kebab-case (e.g., area_1 -> area-1)."""
-
-    m = re.search(r"area[_-]?(\d+)", area_dir.name, flags=re.IGNORECASE)
-    assert m, f"area directory should include an index: {area_dir}"
-    return f"area-{m.group(1)}"
-
-
 _CAMEL_TO_KEBAB = re.compile(r"(?<!^)(?=[A-Z])")
 
 
-def _room_to_kebab(room_id: str) -> str:
-    """Convert room token like 'conferenceRoom_1' to 'conference-room-1'."""
-
-    if "_" in room_id:
-        base, num = room_id.split("_", 1)
-    else:
-        base, num = room_id, ""
-    base_kebab = _CAMEL_TO_KEBAB.sub("-", base).lower()
-    return f"{base_kebab}-{num}" if num else base_kebab
-
-
-def _canonical_origin(area_dir: Path, room_id: str) -> str:
-    """Compose the canonical origin string for a room in an area."""
-
-    return f"stanford-2d-3d.{_kebab_case_area(area_dir)}.{_room_to_kebab(room_id)}"
-
-
-def _stack_with_channel(imgs: list[Tensor]) -> Tensor:
-    """Stack a list of CxHxW tensors into SxC x H x W, preserving channel dim."""
-
-    assert len(imgs) > 0, "expected at least one image to stack"
-    c, h, w = imgs[0].shape
-    for t in imgs:
-        assert t.ndim == 3, "each image must be [C,H,W]"
-        assert tuple(t.shape) == (c, h, w), "all images must share shape"
-    return torch.stack(imgs, dim=0)
-
-
-def _ensure_4x4(mat3x4: Tensor) -> Tensor:
-    """Create a [4,4] homogeneous matrix from a [3,4] matrix."""
-
-    pad = torch.tensor([[0.0, 0.0, 0.0, 1.0]], dtype=mat3x4.dtype)
-    return torch.cat([mat3x4, pad], dim=0)
-
 def _load_pose_json(path: Path) -> tuple[Tensor, float]:
-    """Load a pose and focal length from Stanford pose JSON as [4,4] float32.
-
-    Expected schema contains key ``camera_rt_matrix`` with shape [3,4].
-    """
+    """Load a pose and focal length from Stanford pose JSON as [4,4] float32."""
 
     data = json.loads(path.read_text())
     mat3x4 = torch.tensor(data["camera_rt_matrix"], dtype=torch.float32)
+    pad = torch.tensor([[0.0, 0.0, 0.0, 1.0]], dtype=mat3x4.dtype)
+    pose = torch.cat([mat3x4, pad], dim=0)
     focal_length = float(data["camera_k_matrix"][0][0])
-    return _ensure_4x4(mat3x4), focal_length
+    return pose, focal_length
 
 
 # -----------------------------------------------------------------------------
@@ -147,11 +77,14 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
 
     def __init__(
         self,
+        output_type: type[T],
         area_dir: Path,
         max_sequence_length: int | None = None,
         perspective_loader_threads: int = 1,
     ) -> None:
         super().__init__()
+
+        self.output_type = output_type
         self.area_dir = area_dir
         self.max_sequence_length = max_sequence_length
         self.perspective_loader_threads = perspective_loader_threads
@@ -171,14 +104,11 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
 
         for p in rgba_files:
             name = p.name
-            prefix = _prefix_up_to_domain(name)
-            room_id = _extract_room_id(name)
+            prefix, _, _ = name.partition("_domain_")
+            room_match = cast(re.Match[str], _ROOM_REGEX.search(name))
+            room_id = room_match.group("room")
             depth_path = depth_dir / f"{prefix}_domain_depth.png"
             pose_path = pose_dir / f"{prefix}_domain_pose.json"
-
-            # Happy path: files exist with exact names.
-            assert depth_path.is_file(), f"missing depth: {depth_path}"
-            assert pose_path.is_file(), f"missing pose: {pose_path}"
 
             self._rgba_paths.append(p)
             self._depth_paths.append(depth_path)
@@ -218,6 +148,17 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
         # Freeze room lists and indices post-reordering.
         self._rooms: list[str] = kept_rooms
         self._room_indices: list[list[int]] = new_room_indices
+        area_match = cast(re.Match[str], re.search(r"area[_-]?(\d+)", area_dir.name, flags=re.IGNORECASE))
+        area_slug = f"area-{area_match.group(1)}"
+        self._scene_ids: list[str] = []
+        for room in self._rooms:
+            if "_" in room:
+                base, suffix = room.split("_", 1)
+            else:
+                base, suffix = room, ""
+            kebab_base = _CAMEL_TO_KEBAB.sub("-", base).lower()
+            suffix_part = f"-{suffix}" if suffix else ""
+            self._scene_ids.append(f"stanford-2d-3d.{area_slug}.{kebab_base}{suffix_part}")
 
         # Index perspective assets under area_dir / "data" mirroring pano layout.
         data_dir = area_dir / "data"
@@ -237,16 +178,14 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
         persp_room_to_indices: dict[str, list[int]] = {}
 
         for p in sorted(rgb_dir.glob("*.png")):
-            room_id = _extract_room_id(p.name)
+            room_match = cast(re.Match[str], _ROOM_REGEX.search(p.name))
+            room_id = room_match.group("room")
             if room_id not in kept_room_set:
                 continue
 
-            prefix = _prefix_up_to_domain(p.name)
+            prefix, _, _ = p.name.partition("_domain_")
             depth_path = depth_dir / f"{prefix}_domain_depth.png"
             pose_path = pose_dir / f"{prefix}_domain_pose.json"
-
-            assert depth_path.is_file(), f"missing perspective depth: {depth_path}"
-            assert pose_path.is_file(), f"missing perspective pose: {pose_path}"
 
             global_idx = len(self._persp_rgba_paths)
             self._persp_rgba_paths.append(p)
@@ -256,8 +195,7 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
 
         self._persp_room_indices: list[list[int]] = []
         for room in self._rooms:
-            indices = persp_room_to_indices.get(room)
-            assert indices, f"no perspective frames found for room: {room}"
+            indices = cast(list[int], persp_room_to_indices.get(room))
             sorted_indices = sorted(indices, key=lambda i: self._persp_rgba_paths[i].name)
             self._persp_room_indices.append(sorted_indices)
 
@@ -289,8 +227,8 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
                 pose, _ = _load_pose_json(pose_paths[i])
                 poses.append(pose)
 
-            rgba_batch = _stack_with_channel(rgba_imgs)   # [S,4,H,W]
-            depth_batch = _stack_with_channel(depth_imgs)  # [S,1,H,W]
+            rgba_batch = torch.stack(rgba_imgs, dim=0)   # [S,4,H,W]
+            depth_batch = torch.stack(depth_imgs, dim=0)  # [S,1,H,W]
             pose_batch = torch.stack(poses, dim=0)  # [S,4,4]
 
             return SceneSample(scene_id, rgba_batch, depth_batch, pose_batch, None)
@@ -299,10 +237,10 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
 
 
     def __getitem__(self, idx: int) -> T:
-        room_id = self._rooms[idx]
         view_indices = self._room_indices[idx]
-        scene_id = _canonical_origin(self.area_dir, room_id)
-        
+        view_count = len(view_indices)
+        scene_id = self._scene_ids[idx]
+
         loader = self._make_item_getter(
             scene_id,
             [self._rgba_paths[i] for i in view_indices],
@@ -310,16 +248,18 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
             [self._pose_paths[i] for i in view_indices]
         )
 
-        if T is SceneSampleLazy:
-            return SceneSampleLazy(
+        if self.output_type is SceneSampleLazy:
+            output = SceneSampleLazy(
                 id=scene_id,
-                get_item_range=loader,
-                item_count=len(self.poses[scene_id])
+                loader=loader,
+                length=view_count
             )
-        elif T is SceneSample:
-            return loader(range(len(self.poses[scene_id])))
+        elif self.output_type is SceneSample:
+            output = loader(range(view_count))
         else:
             raise TypeError(f"Unsupported dataset item type: {T}")
+
+        return cast(T, output)
 
 
     def get_perspective(self, idx: int) -> SceneSample:
@@ -330,9 +270,8 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
             - depth [S, 1, H, W]
             - pose  [S, 4, 4]
         """
-        room_id = self._rooms[idx]
         view_indices = self._persp_room_indices[idx]
-        origin = _canonical_origin(self.area_dir, room_id)
+        scene_id = self._scene_ids[idx]
 
         def _load_view(vi: int) -> tuple[Tensor, Tensor, Tensor, float]:
             rgba = read_image(str(self._persp_rgba_paths[vi]))
@@ -352,12 +291,12 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
         else:
             loaded = [_load_view(vi) for vi in view_indices]
 
-        rgba_batch = _stack_with_channel([rgba for rgba, _, _, _ in loaded])
-        depth_batch = _stack_with_channel([depth for _, depth, _, _ in loaded])
+        rgba_batch = torch.stack([rgba for rgba, _, _, _ in loaded], dim=0)
+        depth_batch = torch.stack([depth for _, depth, _, _ in loaded], dim=0)
         pose_batch = torch.stack([pose for _, _, pose, _ in loaded], dim=0)
         focal_length_batch = torch.tensor([focal for *_, focal in loaded])
 
-        return SceneSample(origin, rgba_batch, depth_batch, pose_batch, focal_length_batch)
+        return SceneSample(scene_id, rgba_batch, depth_batch, pose_batch, focal_length_batch)
 
 
 __all__ = [
