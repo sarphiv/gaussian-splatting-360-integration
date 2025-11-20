@@ -11,7 +11,6 @@ import torch as th
 import torchvision.transforms.functional as tvf
 import numpy as np
 from loguru import logger
-import cv2
 from tqdm import tqdm
 from kornia.geometry.conversions import rotation_matrix_to_axis_angle, axis_angle_to_rotation_matrix
 

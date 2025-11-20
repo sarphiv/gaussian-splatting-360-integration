@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import cast
+from typing import cast, Sequence, Callable
 from pathlib import Path
 import json
 from os import environ
@@ -11,10 +11,10 @@ from torchvision.io import decode_image, ImageReadMode
 from joblib import Parallel, delayed
 from loguru import logger
 
-from splat_init.data.datamodule_360 import SceneSample
+from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
 
 
-class ThreeSixtyLocDataset(Dataset[SceneSample]):
+class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](Dataset[T]):
     def __init__(self, data_dir: Path, stride: int = 1, depth_required: bool = True, worker_count: int = 1) -> None:
         super().__init__()
 
@@ -69,27 +69,54 @@ class ThreeSixtyLocDataset(Dataset[SceneSample]):
         else:
             return th.full(default_shape, float("inf"))
 
-    def _load_to_tensor(self, tasks) -> th.Tensor:
-        return th.stack(cast(list[th.Tensor], Parallel(n_jobs=self.worker_count, backend="threading")(tasks)))
+    @staticmethod
+    def _load_to_tensor(tasks, worker_count) -> th.Tensor:
+        return th.stack(cast(list[th.Tensor], Parallel(n_jobs=worker_count, backend="threading")(tasks)))
+    
+    @staticmethod
+    def _make_item_getter(scene_id: str, rgb_paths: list[Path], depth_paths: list[Path] | list[None], poses: list[th.Tensor], worker_count: int) -> Callable[[Sequence[int]], SceneSample]:
+        def getter(indices: Sequence[int]) -> SceneSample:
+            load_rgba_tasks = (delayed(ThreeSixtyLocDataset._load_rgba)(p) for p in [rgb_paths[i] for i in indices])
+            rgba = ThreeSixtyLocDataset._load_to_tensor(load_rgba_tasks, worker_count)
 
-    def __getitem__(self, idx: int) -> SceneSample:
+            load_depth_tasks = (delayed(ThreeSixtyLocDataset._load_depth)(p, (1, *rgba.shape[2:])) for p in [depth_paths[i] for i in indices])
+            depth = ThreeSixtyLocDataset._load_to_tensor(load_depth_tasks, worker_count)
+
+            pose = th.stack([poses[i] for i in indices])
+
+            return SceneSample(
+                id=scene_id,
+                rgba=rgba,
+                depth=depth,
+                pose=pose,
+                focal_length=None
+        )
+
+        return getter
+
+
+    def __getitem__(self, idx: int) -> T:
         scene_id = self.scene_ids[idx]
 
-        load_rgba_tasks = (delayed(self._load_rgba)(p) for p in self.rgb_paths[scene_id])
-        rgba = self._load_to_tensor(load_rgba_tasks)
-
-        load_depth_tasks = (delayed(self._load_depth)(p, (1, *rgba.shape[2:])) for p in self.depth_paths[scene_id])
-        depth = self._load_to_tensor(load_depth_tasks)
-
-        pose = th.stack(self.poses[scene_id])
-
-        return SceneSample(
-            id=scene_id,
-            rgba=rgba,
-            depth=depth,
-            pose=pose,
-            focal_length=None
+        loader = self._make_item_getter(
+            scene_id,
+            self.rgb_paths[scene_id],
+            self.depth_paths[scene_id],
+            self.poses[scene_id],
+            self.worker_count
         )
+
+        if T is SceneSampleLazy:
+            return SceneSampleLazy(
+                id=scene_id,
+                get_item_range=loader,
+                item_count=len(self.poses[scene_id])
+            )
+        elif T is SceneSample:
+            return loader(range(len(self.poses[scene_id])))
+        else:
+            raise TypeError(f"Unsupported dataset item type: {T}")
+
 
     def load_poses(self, idx: int) -> th.Tensor:
         return th.stack(self.poses[self.scene_ids[idx]])

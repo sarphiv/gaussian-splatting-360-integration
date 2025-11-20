@@ -12,27 +12,27 @@ What is the purpose of this agent?
 - Update the general plan first, then the detailed plan, then execute, then review. Repeat this line until completion.
 
 ## General
-[] Collect necessary information.
-[] Formulate overall approach to solve the task.
-[] Append to the plan with the above approach.
-[] ...
+- [] Collect necessary information.
+- [] Formulate overall approach to solve the task.
+- [] Append to the plan with the above approach.
+- [] ...
 
 ## Detailed
-[] Collect necessary information.
-    [] Explore the codebase.
-    [] Explore the data for e.g. relevant metadata.
-    [] Search online for relevant information.
-    [] Describe a small experiment to verify or deepen understanding.
-    [] ...
-[] Formulate overall approach to solve the task.
-    [] Which code areas to change and with what.
-    [] Perhaps more information must be collected, which necessitates updating the plan.
-    [] ...
-[] Append to the plan with the above approach.
-    [] Only update the detailed section after the current update to the general plan is completed.
-    [] If issues or new information arises, the plan must be updated accordingly.
-    [] Assumptions and questions should be updated whenever necessary.
-    [] ...
+- [] Collect necessary information.
+    - [x] Explore the codebase.
+    - [x] Explore the data for e.g. relevant metadata.
+    - [] Search online for relevant information.
+    - [] Describe a small experiment to verify or deepen understanding.
+    - [] ...
+- [] Formulate overall approach to solve the task.
+    - [] Which code areas to change and with what.
+    - [] Perhaps more information must be collected, which necessitates updating the plan.
+    - [] ...
+- [] Append to the plan with the above approach.
+    - [] Only update the detailed section after the current update to the general plan is completed.
+    - [] If issues or new information arises, the plan must be updated accordingly.
+    - [] Assumptions and questions should be updated whenever necessary.
+    - [] ...
 
 
 # Assumptions

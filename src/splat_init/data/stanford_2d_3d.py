@@ -21,6 +21,7 @@ Returned sample
 """
 from __future__ import annotations
 
+from typing import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
@@ -30,7 +31,7 @@ import torch
 from torch import Tensor
 from torchvision.io import read_image
 
-from splat_init.data.datamodule_360 import SceneSample
+from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
 
 
 # -----------------------------------------------------------------------------
@@ -113,13 +114,24 @@ def _ensure_4x4(mat3x4: Tensor) -> Tensor:
     pad = torch.tensor([[0.0, 0.0, 0.0, 1.0]], dtype=mat3x4.dtype)
     return torch.cat([mat3x4, pad], dim=0)
 
+def _load_pose_json(path: Path) -> tuple[Tensor, float]:
+    """Load a pose and focal length from Stanford pose JSON as [4,4] float32.
+
+    Expected schema contains key ``camera_rt_matrix`` with shape [3,4].
+    """
+
+    data = json.loads(path.read_text())
+    mat3x4 = torch.tensor(data["camera_rt_matrix"], dtype=torch.float32)
+    focal_length = float(data["camera_k_matrix"][0][0])
+    return _ensure_4x4(mat3x4), focal_length
+
 
 # -----------------------------------------------------------------------------
 # Dataset
 # -----------------------------------------------------------------------------
 
 
-class Stanford2D3DDataset(torch.utils.data.Dataset[SceneSample]):
+class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.Dataset[T]):
     """Data-oriented dataset grouping all views per room in one Stanford area.
 
     Specific to pano/{rgb,depth,pose} with JSON pose format containing
@@ -257,41 +269,58 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[SceneSample]):
     def __len__(self) -> int:  # pragma: no cover - trivial
         return len(self._rooms)
 
-    def __getitem__(self, idx: int) -> SceneSample:
-        """Load all views from the room at index ``idx``.
+    @staticmethod
+    def _make_item_getter(scene_id: str, rgba_paths: list[Path], depth_paths: list[Path], pose_paths: list[Path]) -> Callable[[Sequence[int]], SceneSample]:
+        def getter(indices: Sequence[int]) -> SceneSample:
+            rgba_imgs: list[Tensor] = []
+            depth_imgs: list[Tensor] = []
+            poses: list[Tensor] = []
 
-        Returns a ``SceneSample`` dataclass with origin name and stacked tensors:
-        - rgb   [S, 4, H, W]
-        - depth [S, 1, H, W]
-        - pose  [S, 4, 4]
-        """
+            for i in indices:
+                rgba = read_image(str(rgba_paths[i]))  # [4,H,W] RGBA
+                rgba = rgba.to(torch.float32) / 255.0
+                rgba_imgs.append(rgba)
 
+                depth = read_image(str(depth_paths[i]))  # [1,H,W]
+                # NOTE: Each depth unit is 1/512 meters.
+                depth = depth.to(torch.float32) / 512.0
+                depth_imgs.append(depth)
+
+                pose, _ = _load_pose_json(pose_paths[i])
+                poses.append(pose)
+
+            rgba_batch = _stack_with_channel(rgba_imgs)   # [S,4,H,W]
+            depth_batch = _stack_with_channel(depth_imgs)  # [S,1,H,W]
+            pose_batch = torch.stack(poses, dim=0)  # [S,4,4]
+
+            return SceneSample(scene_id, rgba_batch, depth_batch, pose_batch, None)
+
+        return getter
+
+
+    def __getitem__(self, idx: int) -> T:
         room_id = self._rooms[idx]
         view_indices = self._room_indices[idx]
-        origin = _canonical_origin(self.area_dir, room_id)
+        scene_id = _canonical_origin(self.area_dir, room_id)
+        
+        loader = self._make_item_getter(
+            scene_id,
+            [self._rgba_paths[i] for i in view_indices],
+            [self._depth_paths[i] for i in view_indices],
+            [self._pose_paths[i] for i in view_indices]
+        )
 
-        rgba_imgs: list[Tensor] = []
-        depth_imgs: list[Tensor] = []
-        poses: list[Tensor] = []
+        if T is SceneSampleLazy:
+            return SceneSampleLazy(
+                id=scene_id,
+                get_item_range=loader,
+                item_count=len(self.poses[scene_id])
+            )
+        elif T is SceneSample:
+            return loader(range(len(self.poses[scene_id])))
+        else:
+            raise TypeError(f"Unsupported dataset item type: {T}")
 
-        for vi in view_indices:
-            rgba = read_image(str(self._rgba_paths[vi]))  # [4,H,W] RGBA
-            rgba = rgba.to(torch.float32) / 255.0
-            rgba_imgs.append(rgba)
-
-            depth = read_image(str(self._depth_paths[vi]))  # [1,H,W]
-            # NOTE: Each depth unit is 1/512 meters.
-            depth = depth.to(torch.float32) / 512.0
-            depth_imgs.append(depth)
-
-            pose, _ = _load_pose_json(self._pose_paths[vi])
-            poses.append(pose)
-
-        rgba_batch = _stack_with_channel(rgba_imgs)   # [S,4,H,W]
-        depth_batch = _stack_with_channel(depth_imgs)  # [S,1,H,W]
-        pose_batch = torch.stack(poses, dim=0)  # [S,4,4]
-
-        return SceneSample(origin, rgba_batch, depth_batch, pose_batch, None)
 
     def get_perspective(self, idx: int) -> SceneSample:
         """Load all perspective views from the room at index ``idx``.
@@ -329,23 +358,6 @@ class Stanford2D3DDataset(torch.utils.data.Dataset[SceneSample]):
         focal_length_batch = torch.tensor([focal for *_, focal in loaded])
 
         return SceneSample(origin, rgba_batch, depth_batch, pose_batch, focal_length_batch)
-
-
-# -----------------------------------------------------------------------------
-# I/O helpers
-# -----------------------------------------------------------------------------
-
-
-def _load_pose_json(path: Path) -> tuple[Tensor, float]:
-    """Load a pose and focal length from Stanford pose JSON as [4,4] float32.
-
-    Expected schema contains key ``camera_rt_matrix`` with shape [3,4].
-    """
-
-    data = json.loads(path.read_text())
-    mat3x4 = torch.tensor(data["camera_rt_matrix"], dtype=torch.float32)
-    focal_length = float(data["camera_k_matrix"][0][0])
-    return _ensure_4x4(mat3x4), focal_length
 
 
 __all__ = [

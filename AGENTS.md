@@ -5,19 +5,21 @@
 
 
 # Strategy
+- Figure out what type of agent you are, and then follow the relevant instructions below.
+
 - Agent types
     - If you have been directed to a specific task file, you are a subagent.
-    - If you have been directed to `main.md` or no task file, you are an orchestrator agent.
+    - If you have been directed to no task file or `main.md`, you are an orchestrator agent.
 
 - Orchestrator task initialization if there is no `main.md` file.
-    - Create a `tasks/{task-name}/main.md` file. Copy `tasks/template.md` as a template.
+    - Create a `tasks/{task-name}/main.md` file. Copy `tasks/template` as a template.
     - Fill out the task file according to the task template.
     - If I approve the plan, proceed to execute it.
     - If the plan is rejected, update the plan according to feedback and resubmit for approval.
     - Once the plan is approved, you will need no further approval for changes to the plan unless they are major.
 - Orchestration notes
     - The `main.md` task file focuses on carving out and delegating subtasks to subagents.
-    - Place subtasks at `tasks/{task-name}/{subtask-name}.md` and fill them out accordingly.
+    - Place the subtask file at `tasks/{task-name}/{subtask-name}.md` and fill them out accordingly.
     - The subtasks should be designed to run in parallel while minimizing risk of conflict between subagents.
     - Each new subtask is tied to one new subagent.
     - You work in the same loop of general plan, detailed plan, implement, review, repeat/complete.
@@ -25,6 +27,7 @@
     - Reviewing a subtask is a subtask itself, so spawn a new subagent and prepare a filled out subtask for it.
     - Once a subtask is complete, read its task file, and use this to inform your next steps.
     - Update existing subtask files or create new ones as necessary.
+    - Do not read other task directories in the `tasks/` directory.
 - Implementer notes
     - Subagents may be running in parallel so assume files may have changed since you last read them.
     - Review your own code before submitting it for review.

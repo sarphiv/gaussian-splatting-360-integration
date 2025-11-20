@@ -35,7 +35,6 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset
 # Shared sample type
 # -----------------------------------------------------------------------------
 
-
 @dataclass
 class SceneSample:
     """One scene-worth of aligned panoramic views.
@@ -55,12 +54,59 @@ class SceneSample:
     focal_length: Tensor | None
 
 
+class SceneSampleLazy:
+    def __init__(self, id: str, loader: Callable[[Sequence[int]], SceneSample], length: int):
+        self.id = id
+        self._length = length
+        self._loader = loader
+
+    def __len__(self) -> int:
+        return self._length
+
+    def __getitem__(self, key: int | slice | Sequence[int] | Sequence[bool] | torch.Tensor) -> SceneSample:
+        indices: tuple[int, ...] | None = None
+
+        if  isinstance(key, int):
+            indices = (key,)
+        elif isinstance(key, slice):
+            indices = tuple(range(*key.indices(self._length)))
+        elif isinstance(key, tuple):
+            indices = key
+        elif isinstance(key, Sequence):
+            all_bool = all(isinstance(k, bool) for k in key)
+            all_int = all(isinstance(k, int) for k in key)
+            if len(key) > 0 and all_bool and len(key) != self._length:
+                raise IndexError(f"Index has length {len(key)} but expected {self._length}")
+            elif len(key) > 0 and not all_bool and not all_int:
+                raise TypeError("Mixed types in index sequence")
+            elif len(key) > 0 and all_bool:
+                indices = tuple(i for i, m in enumerate(key) if m)
+            elif len(key) == 0 or all_int:
+                indices = tuple(key)
+            else:
+                raise NotImplementedError(f"This should be unreachable", key)
+        elif isinstance(key, torch.Tensor):
+            if key.dim() != 1:
+                raise IndexError(f"Tensor index has shape {key.shape} but expected 1D")
+            elif key.dtype == torch.bool and key.shape != (self._length,):
+                raise IndexError(f"Boolean index has shape {key.shape} but expected ({self._length},)")
+            elif key.dtype == torch.bool:
+                indices = tuple(i for i, m in enumerate(key.tolist()) if m)
+            else:
+                indices = tuple(key.tolist())
+        else:
+            raise TypeError(f"Unsupported index type: {type(key)}")
+
+        return self._loader(indices)
+
+
+
 # -----------------------------------------------------------------------------
 # DataModule
 # -----------------------------------------------------------------------------
 
 
-class DataModule360(L.LightningDataModule):
+class DataModule360[T: (SceneSample | SceneSampleLazy)](L.LightningDataModule):
     """Lightning DataModule for 360° panorama datasets producing room samples.
 
     Parameters
@@ -74,15 +120,14 @@ class DataModule360(L.LightningDataModule):
     - persistent_workers: Keep workers alive between iterations.
     - prefetch_factor: Batches prefetched per worker (requires num_workers>0).
     - shuffle_train/val/test: Shuffle flags per stage.
-    - transform:      Optional callable applied to each SceneSample in collate.
     """
 
     def __init__(
         self,
         *,
-        train_datasets: Sequence[Callable[[], Dataset[SceneSample]]],
-        val_datasets: Sequence[Callable[[], Dataset[SceneSample]]] | None = None,
-        test_datasets: Sequence[Callable[[], Dataset[SceneSample]]] | None = None,
+        train_datasets: Sequence[Callable[[], Dataset[T]]],
+        val_datasets: Sequence[Callable[[], Dataset[T]]] | None = None,
+        test_datasets: Sequence[Callable[[], Dataset[T]]] | None = None,
         batch_size: int = 1,
         num_workers: int = 4,
         seed: int = 0,
@@ -92,7 +137,6 @@ class DataModule360(L.LightningDataModule):
         shuffle_train: bool = True,
         shuffle_val: bool = False,
         shuffle_test: bool = False,
-        transform: Callable[[SceneSample], SceneSample] | None = None,
     ) -> None:
         super().__init__()
         self._train_fns = list(train_datasets)
@@ -108,12 +152,11 @@ class DataModule360(L.LightningDataModule):
         self.shuffle_train = shuffle_train
         self.shuffle_val = shuffle_val
         self.shuffle_test = shuffle_test
-        self._transform = transform
 
         # Lazily created datasets
-        self._train_ds: Dataset[SceneSample] | None = None
-        self._val_ds: Dataset[SceneSample] | None = None
-        self._test_ds: Dataset[SceneSample] | None = None
+        self._train_ds: Dataset[T] | None = None
+        self._val_ds: Dataset[T] | None = None
+        self._test_ds: Dataset[T] | None = None
 
     # ------------------------------------------------------------------
     # Lightning hooks
@@ -125,12 +168,12 @@ class DataModule360(L.LightningDataModule):
             self._train_ds = _concat(train_list)
         if stage in ("validate", "fit", None) and self._val_ds is None:
             val_list = [fn() for fn in self._val_fns] if self._val_fns else []
-            self._val_ds = _concat(val_list) if val_list else _EMPTY_DATASET
+            self._val_ds = _concat(val_list) if val_list else _EmptyDataset()
         if stage in ("test", None) and self._test_ds is None:
             test_list = [fn() for fn in self._test_fns] if self._test_fns else []
-            self._test_ds = _concat(test_list) if test_list else _EMPTY_DATASET
+            self._test_ds = _concat(test_list) if test_list else _EmptyDataset()
 
-    def train_dataloader(self) -> DataLoader[List[SceneSample]]:
+    def train_dataloader(self) -> DataLoader[List[T]]:
         assert self._train_ds is not None, "call setup('fit') before train_dataloader()"
         return make_dataloader(
             self._train_ds,
@@ -144,7 +187,7 @@ class DataModule360(L.LightningDataModule):
             collate_fn=self._collate,
         )
 
-    def val_dataloader(self) -> DataLoader[List[SceneSample]]:
+    def val_dataloader(self) -> DataLoader[List[T]]:
         assert self._val_ds is not None, "call setup('validate') before val_dataloader()"
         return make_dataloader(
             self._val_ds,
@@ -158,7 +201,7 @@ class DataModule360(L.LightningDataModule):
             collate_fn=self._collate,
         )
 
-    def test_dataloader(self) -> DataLoader[List[SceneSample]]:
+    def test_dataloader(self) -> DataLoader[List[T]]:
         assert self._test_ds is not None, "call setup('test') before test_dataloader()"
         return make_dataloader(
             self._test_ds,
@@ -172,10 +215,8 @@ class DataModule360(L.LightningDataModule):
             collate_fn=self._collate,
         )
 
-    def _collate(self, batch: List[SceneSample]) -> List[SceneSample]:
-        if self._transform is None:
-            return batch
-        return [self._transform(x) for x in batch]
+    def _collate(self, batch: List[T]) -> List[T]:
+        return batch
 
 
 # -----------------------------------------------------------------------------
@@ -183,7 +224,7 @@ class DataModule360(L.LightningDataModule):
 # -----------------------------------------------------------------------------
 
 
-def _concat(datasets: Sequence[Dataset[SceneSample]]) -> Dataset[SceneSample]:
+def _concat[T: (SceneSample | SceneSampleLazy)](datasets: Sequence[Dataset[T]]) -> Dataset[T]:
     """Concatenate datasets if there are more than one, else return the single.
 
     This keeps indexing fast while allowing multi-area/multi-dataset training.
@@ -194,15 +235,12 @@ def _concat(datasets: Sequence[Dataset[SceneSample]]) -> Dataset[SceneSample]:
 
 
 # Minimal empty dataset to satisfy loader types when a stage has no data.
-class _EmptyDataset(Dataset[SceneSample]):
+class _EmptyDataset[T: (SceneSample | SceneSampleLazy)](Dataset[T]):
     def __len__(self) -> int:
         return 0
 
-    def __getitem__(self, idx: int) -> SceneSample:  # pragma: no cover - never called
+    def __getitem__(self, idx: int) -> T:
         raise IndexError
-
-
-_EMPTY_DATASET: Dataset[SceneSample] = _EmptyDataset()
 
 
 def _seed_worker(worker_id: int) -> None:
@@ -219,8 +257,8 @@ def _seed_worker(worker_id: int) -> None:
     np.random.seed(seed)
 
 
-def make_dataloader(
-    ds: Dataset[SceneSample],
+def make_dataloader[T: (SceneSample | SceneSampleLazy)](
+    ds: Dataset[T],
     *,
     batch_size: int,
     shuffle: bool,
@@ -229,8 +267,8 @@ def make_dataloader(
     pin_memory: bool,
     persistent_workers: bool,
     prefetch_factor: int | None,
-    collate_fn: Callable[[List[SceneSample]], List[SceneSample]],
-) -> DataLoader[List[SceneSample]]:
+    collate_fn: Callable[[List[T]], List[T]],
+) -> DataLoader[List[T]]:
     """Factory for DataLoader with deterministic shuffling and worker seeding."""
 
     gen = torch.Generator()
