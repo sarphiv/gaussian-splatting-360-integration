@@ -9,6 +9,7 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     git \
     sudo \
     wget \
+    ripgrep \
     nvtop \
     ffmpeg \
     libsm6 \

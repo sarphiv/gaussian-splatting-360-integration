@@ -164,10 +164,14 @@ class VggtNaiveEquirectangular(LightningModule):
     # Core logic
     # ------------------------------------------------------------------
 
-    def forward(self, images: th.Tensor) -> dict[str, th.Tensor]:
-        """Forward pass through VGGT."""
+    def forward(self, images: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
+        """Forward pass returning pose matrices and depth predictions."""
 
-        return self.model(images)
+        preds = self.model(images)
+        pose_enc, depth_pred = self._gather_predictions(preds, images.shape[1])
+        pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
+
+        return pose_mats_pred, depth_pred
 
     def _compute_depth_loss(self, depth_gt: th.Tensor, depth_pred: th.Tensor, alpha: th.Tensor) -> th.Tensor:
         """Mean squared error on depth masked by alpha and saturation threshold."""
@@ -253,9 +257,7 @@ class VggtNaiveEquirectangular(LightningModule):
 
         processed = self._preprocess_sample(sample)
         rgb_inputs = processed.rgb.unsqueeze(0)
-        preds = self.forward(rgb_inputs)
-
-        pose_enc, depth_out = self._gather_predictions(preds, num_views)
+        pose_mats_pred, depth_out = self.forward(rgb_inputs)
 
         gt_depth = processed.depth[:num_views]
         alpha = processed.alpha[:num_views]
@@ -267,7 +269,6 @@ class VggtNaiveEquirectangular(LightningModule):
         target_centers = self._camera_centers(pose_mats)
         target_centers_rel = target_centers - target_centers[:1]
 
-        pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
         pred_rot_rel = pose_mats_pred[:, :3, :3]
         pred_centers_rel = pose_mats_pred[:, :3, 3]
 
