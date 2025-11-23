@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 import torch as th
 import torch.nn.functional as F
@@ -27,10 +26,10 @@ from splat_init.data.datamodule_360 import SceneSample
 class _ProcessedSample:
     """Container holding tensors that share the same spatial resolution."""
 
-    rgb: th.Tensor  # [S, 3, H, W]
+    rgb: th.Tensor    # [S, 3, H, W]
     depth: th.Tensor  # [S, 1, H, W]
     alpha: th.Tensor  # [S, 1, H, W]
-    pose: th.Tensor  # [S, 4, 4]
+    pose: th.Tensor   # [S, 4, 4]
 
 
 class VggtNaiveEquirectangular(LightningModule):
@@ -109,65 +108,6 @@ class VggtNaiveEquirectangular(LightningModule):
 
         return _ProcessedSample(rgb=rgb, depth=depth, alpha=alpha, pose=pose)
 
-    @staticmethod
-    def _pad_to_height(tensor: th.Tensor, target_height: int, pad_value: float) -> th.Tensor:
-        """Symmetrically pad a tensor along the height dimension."""
-
-        height = tensor.shape[-2]
-        if height == target_height:
-            return tensor
-        pad_total = target_height - height
-        pad_top = pad_total // 2
-        pad_bottom = pad_total - pad_top
-        padding = (0, 0, pad_top, pad_bottom)
-        return F.pad(tensor, padding, value=pad_value)
-
-    def _prepare_batch(
-        self, batch: list[SceneSample]
-    ) -> tuple[th.Tensor, list[_ProcessedSample], list[int]]:
-        """Pads panoramas to a common shape and stacks them for VGGT."""
-
-        processed: list[_ProcessedSample] = [self._preprocess_sample(sample) for sample in batch]
-        max_height = max(item.rgb.shape[-2] for item in processed)
-        max_views = max(item.rgb.shape[0] for item in processed)
-
-        for item in processed:
-            if item.rgb.shape[-2] != max_height:
-                item.rgb = self._pad_to_height(item.rgb, max_height, pad_value=1.0)
-                item.depth = self._pad_to_height(item.depth, max_height, pad_value=0.0)
-                item.alpha = self._pad_to_height(item.alpha, max_height, pad_value=0.0)
-
-        batch_size = len(processed)
-        device = processed[0].rgb.device
-        dtype = processed[0].rgb.dtype
-        depth_dtype = processed[0].depth.dtype
-        alpha_dtype = processed[0].alpha.dtype
-
-        rgb_batch = th.ones(
-            (batch_size, max_views, 3, max_height, VGGT_TARGET_SIZE), device=device, dtype=dtype
-        )
-        depth_batch = th.zeros(
-            (batch_size, max_views, 1, max_height, VGGT_TARGET_SIZE), device=device, dtype=depth_dtype
-        )
-        alpha_batch = th.zeros(
-            (batch_size, max_views, 1, max_height, VGGT_TARGET_SIZE), device=device, dtype=alpha_dtype
-        )
-
-        view_counts: list[int] = []
-        for idx, item in enumerate(processed):
-            views = item.rgb.shape[0]
-            rgb_batch[idx, :views] = item.rgb
-            depth_batch[idx, :views] = item.depth
-            alpha_batch[idx, :views] = item.alpha
-            view_counts.append(views)
-
-        for idx, item in enumerate(processed):
-            item.rgb = rgb_batch[idx, : view_counts[idx]]
-            item.depth = depth_batch[idx, : view_counts[idx]]
-            item.alpha = alpha_batch[idx, : view_counts[idx]]
-
-        return rgb_batch, processed, view_counts
-
     # ------------------------------------------------------------------
     # Pose utilities
     # ------------------------------------------------------------------
@@ -239,16 +179,13 @@ class VggtNaiveEquirectangular(LightningModule):
     def _gather_predictions(
         self,
         preds: dict[str, th.Tensor],
-        view_counts: Iterable[int],
-    ) -> tuple[list[th.Tensor], list[th.Tensor]]:
-        """Slice VGGT outputs to match the original view counts."""
+        num_views: int,
+    ) -> tuple[th.Tensor, th.Tensor]:
+        """Slice VGGT outputs to match the number of views."""
 
-        pose = preds["pose_enc"]  # [B, V, 9]
-        depth = preds["depth"]    # [B, V, H, W, 1]
-
-        pose_list = [pose[idx, :count] for idx, count in enumerate(view_counts)]
-        depth_list = [depth[idx, :count].squeeze(-1).unsqueeze(1) for idx, count in enumerate(view_counts)]
-        return pose_list, depth_list
+        pose = preds["pose_enc"][0, :num_views]  # [V, 9]
+        depth = preds["depth"][0, :num_views].squeeze(-1).unsqueeze(1)  # [V, 1, H, W]
+        return pose, depth
 
     def _pose_matrices_from_encoding(self, pose: th.Tensor) -> th.Tensor:
         """Convert pose encoding into homogeneous transformation matrices."""
@@ -310,52 +247,34 @@ class VggtNaiveEquirectangular(LightningModule):
         """Compute losses and auxiliary metrics for one step."""
 
         assert len(batch) == 1, "Batch size > 1 not supported yet"
+        sample = batch[0]
+        num_views = sample.rgba.shape[0]
+        assert num_views > 1, "Expected multiple views per scene"
 
-        rgb_inputs, processed, view_counts = self._prepare_batch(batch)
+        processed = self._preprocess_sample(sample)
+        rgb_inputs = processed.rgb.unsqueeze(0)
         preds = self.forward(rgb_inputs)
 
-        pose_sequences, depth_sequences = self._gather_predictions(preds, view_counts)
+        pose_enc, depth_out = self._gather_predictions(preds, num_views)
 
-        depth_losses, rot_losses, trans_losses = [], [], []
-        # NOTE: Log handling only supports batch size 1 for now
-        translation_logs: list[th.Tensor] = []
-        rotation_logs: list[th.Tensor] = []
+        gt_depth = processed.depth[:num_views]
+        alpha = processed.alpha[:num_views]
 
-        for pose_enc, depth_out, item, count in zip(pose_sequences, depth_sequences, processed, view_counts):
-            gt_depth = item.depth[:count]
-            alpha = item.alpha[:count]
+        loss_depth = self._compute_depth_loss(gt_depth, depth_out, alpha)
 
-            loss_depth = self._compute_depth_loss(gt_depth, depth_out, alpha)
-            depth_losses.append(loss_depth)
+        pose_mats = processed.pose[:num_views]
+        target_rot = self._relative_rotations(pose_mats)
+        target_centers = self._camera_centers(pose_mats)
+        target_centers_rel = target_centers - target_centers[:1]
 
-            pose_mats = item.pose[:count]
-            target_rot = self._relative_rotations(pose_mats)
-            target_centers = self._camera_centers(pose_mats)
-            target_centers_rel = target_centers - target_centers[:1]
+        pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
+        pred_rot_rel = pose_mats_pred[:, :3, :3]
+        pred_centers_rel = pose_mats_pred[:, :3, 3]
 
-            pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
-            pred_rot_rel = pose_mats_pred[:, :3, :3]
-            pred_centers_rel = pose_mats_pred[:, :3, 3]
+        loss_rot = self._geodesic_so3(target_rot[1:], pred_rot_rel[1:]).mean()
+        loss_trans = ((target_centers_rel[1:] - pred_centers_rel[1:]) ** 2).mean()
 
-            if count > 1:
-                geodesic = self._geodesic_so3(target_rot[1:], pred_rot_rel[1:]).mean()
-                translation_loss = ((target_centers_rel[1:] - pred_centers_rel[1:]) ** 2).mean()
-            else:
-                zero = loss_depth.new_zeros(())
-                geodesic = zero
-                translation_loss = zero
-
-            rot_losses.append(geodesic)
-            trans_losses.append(translation_loss)
-
-            translation_logs.append(pred_centers_rel)
-            rotation_logs.append(pred_rot_rel)
-
-        loss_depth = th.stack(depth_losses).mean()
-        loss_rot = th.stack(rot_losses).mean()
-        loss_trans = th.stack(trans_losses).mean()
-
-        self._write_poses([b.id for b in batch], th.cat(rotation_logs)[None, ...], th.cat(translation_logs)[None, ...])
+        self._write_poses([sample.id], pred_rot_rel.unsqueeze(0), pred_centers_rel.unsqueeze(0))
 
         loss = 0.2 * loss_depth + 0.4 * loss_rot + 0.4 * loss_trans
 
