@@ -21,6 +21,7 @@ from vggt.models.vggt import VGGT
 
 from configs.constants import TRAIN_PREFIX, VALIDATION_PREFIX, VGGT_TARGET_SIZE
 from splat_init.data.datamodule_360 import SceneSample
+from utilities.pose import mat_to_quat_xyzw, mean_quaternion_markley, pose_to_mat, quat_to_mat_xyzw
 
 _FACE_ORDER = ("+X", "-X", "+Y", "-Y", "+Z", "-Z")
 
@@ -277,68 +278,6 @@ class VggtPerspectiveTransform(LightningModule):
     # Pose utilities
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _quat_to_mat(quat: th.Tensor) -> th.Tensor:
-        quat = quat / quat.norm(dim=-1, keepdim=True).clamp_min(th.finfo(quat.dtype).eps)
-        x, y, z, w = th.unbind(quat, dim=-1)
-
-        xx, yy, zz = x * x, y * y, z * z
-        xy, xz, yz = x * y, x * z, y * z
-        wx, wy, wz = w * x, w * y, w * z
-
-        m00 = 1.0 - 2.0 * (yy + zz)
-        m11 = 1.0 - 2.0 * (xx + zz)
-        m22 = 1.0 - 2.0 * (xx + yy)
-        m01 = 2.0 * (xy - wz)
-        m10 = 2.0 * (xy + wz)
-        m02 = 2.0 * (xz + wy)
-        m20 = 2.0 * (xz - wy)
-        m12 = 2.0 * (yz - wx)
-        m21 = 2.0 * (yz + wx)
-
-        row0 = th.stack((m00, m01, m02), dim=-1)
-        row1 = th.stack((m10, m11, m12), dim=-1)
-        row2 = th.stack((m20, m21, m22), dim=-1)
-        return th.stack((row0, row1, row2), dim=-2)
-
-    @staticmethod
-    def _mat_to_quat_xyzw(mat: th.Tensor) -> th.Tensor:
-        # mat: (..., 3, 3) -> (..., 4) quaternion in (x, y, z, w)
-        m00, m01, m02 = mat[..., 0, 0], mat[..., 0, 1], mat[..., 0, 2]
-        m10, m11, m12 = mat[..., 1, 0], mat[..., 1, 1], mat[..., 1, 2]
-        m20, m21, m22 = mat[..., 2, 0], mat[..., 2, 1], mat[..., 2, 2]
-
-        eps = th.finfo(mat.dtype).eps
-        t0 = 1.0 + m00 - m11 - m22
-        t1 = 1.0 - m00 + m11 - m22
-        t2 = 1.0 - m00 - m11 + m22
-        t3 = 1.0 + m00 + m11 + m22
-        t2 = 1.0 - m00 - m11 + m22
-
-        t = th.stack((t0, t1, t2, t3), dim=-1).clamp_min(eps)        # (..., 4)
-        idx = t.argmax(dim=-1)                                       # (...)
-
-        s = 2.0 * th.sqrt(t.gather(-1, idx.unsqueeze(-1)).squeeze(-1)).clamp_min(eps)  # (...)
-
-        s01 = m01 + m10; s02 = m02 + m20; s12 = m12 + m21
-        d21 = m21 - m12; d20 = m02 - m20; d10 = m10 - m01
-
-        q0 = th.stack((0.25 * s,  s01 / s,  s02 / s,  d21 / s), dim=-1)  # x largest
-        q1 = th.stack((s01 / s,  0.25 * s,  s12 / s,  d20 / s), dim=-1)  # y largest
-        q2 = th.stack((s02 / s,  s12 / s,  0.25 * s,  d10 / s), dim=-1)  # z largest
-        q3 = th.stack((d21 / s,  d20 / s,  d10 / s,  0.25 * s), dim=-1)  # w largest
-
-        oh = th.nn.functional.one_hot(idx, num_classes=4).to(mat.dtype)
-        quat = (
-            q0 * oh[..., 0].unsqueeze(-1)
-          + q1 * oh[..., 1].unsqueeze(-1)
-          + q2 * oh[..., 2].unsqueeze(-1)
-          + q3 * oh[..., 3].unsqueeze(-1)
-        )
-
-        quat = quat / quat.norm(dim=-1, keepdim=True).clamp_min(eps)
-        return quat
-
 
     @staticmethod
     def _geodesic_so3(target: th.Tensor, predicted: th.Tensor) -> th.Tensor:
@@ -356,22 +295,12 @@ class VggtPerspectiveTransform(LightningModule):
 
     def _mean_rotation_markley(self, quat: th.Tensor) -> th.Tensor:
         # Rotate face to canonical orientation
-        quat = self._mat_to_quat_xyzw(self._quat_to_mat(quat) @ self._face_rots.permute(0, 2, 1)[None, ...].to(quat))
+        quat = mat_to_quat_xyzw(
+            quat_to_mat_xyzw(quat) @ self._face_rots.permute(0, 2, 1)[None, ...].to(quat)
+        )
         weights = (self.face_weights / self.face_weights.sum()).to(quat)
-        weight_view = weights.view(1, weights.shape[0], 1)
-        weighted = quat * weight_view
-        k_mat = th.einsum("vni,vnj->vij", quat, weighted)
-        eigvals, eigvecs = th.linalg.eigh(k_mat.float())
-        dominant = eigvecs[..., -1].to(dtype=quat.dtype)
-        return self._quat_to_mat(dominant)
-
-    @staticmethod
-    def _assemble_se3(rotation: th.Tensor, translation: th.Tensor) -> th.Tensor:
-        mats = rotation.new_zeros((*rotation.shape[:-2], 4, 4))
-        mats[..., :3, :3] = rotation
-        mats[..., :3, 3] = translation
-        mats[..., 3, 3] = 1.0
-        return mats
+        dominant = mean_quaternion_markley(quat, weights=weights)
+        return quat_to_mat_xyzw(dominant)
 
     def _write_poses(
         self,
@@ -426,7 +355,7 @@ class VggtPerspectiveTransform(LightningModule):
     def forward(self, images: th.Tensor) -> tuple[th.Tensor, None, dict[str, th.Tensor]]:
         """Project panoramas, run VGGT, and merge face poses into camera transforms."""
 
-        assert images.dim() == 5, "Expected images shaped [B, V, C, H, W]"
+        assert images.dim() == 5, "Expected images shaped [B, S, C, H, W]"
         batch, views, channels, height, width = images.shape
         assert channels in (3, 4), "Channels must be 3 (RGB) or 4 (RGBA)"
         assert views > 1, "Need at least two views per sample"
@@ -461,7 +390,7 @@ class VggtPerspectiveTransform(LightningModule):
         depth_pred_faces = preds["depth"][0].view(views, num_faces, VGGT_TARGET_SIZE, VGGT_TARGET_SIZE)
 
         quat_faces, translation_faces, _ = self._from_pose_encoding(pose_faces)
-        rotation_faces = self._quat_to_mat(quat_faces)
+        rotation_faces = quat_to_mat_xyzw(quat_faces)
 
         rotation_merged = self._mean_rotation_markley(quat_faces)
         weights = self.face_weights.to(translation_faces).view(1, num_faces, 1)
@@ -475,7 +404,7 @@ class VggtPerspectiveTransform(LightningModule):
         centers_rel = centers_merged - centers_merged[:1]
         translation_rel = -(rotation_merged @ centers_rel.unsqueeze(-1)).squeeze(-1)
 
-        mats_pred_rel = self._assemble_se3(rotation_rel, translation_rel)
+        mats_pred_rel = pose_to_mat(rotation_rel, translation_rel)
 
         return mats_pred_rel.unsqueeze(0), None, {
             "depth_faces": depth_pred_faces.unsqueeze(0),
@@ -505,8 +434,6 @@ class VggtPerspectiveTransform(LightningModule):
         assert pose_faces_batch is not None, "forward must return pose_faces for training"
         assert centers_rel_batch is not None, "forward must return centers_rel for training"
         assert rotation_merged_batch is not None and translation_merged_batch is not None, "forward must return merged poses for training"
-        assert depth_faces_batch.shape[0] == 1 and pose_faces_batch.shape[0] == 1, "Batch size mismatch"
-        assert centers_rel_batch.shape[0] == 1 and rotation_merged_batch.shape[0] == 1, "Batch size mismatch"
 
         depth_faces = depth_faces_batch[0]
         pose_faces = pose_faces_batch[0]
@@ -518,7 +445,7 @@ class VggtPerspectiveTransform(LightningModule):
         assert depth_faces.shape[0] == views, "Depth predictions view mismatch"
 
         quat_faces, translation_faces, _ = self._from_pose_encoding(pose_faces)
-        rotation_faces = self._quat_to_mat(quat_faces)
+        rotation_faces = quat_to_mat_xyzw(quat_faces)
 
         pose_ref_inv = th.linalg.inv(projected.pose[0])
         pose_rel = projected.pose @ pose_ref_inv

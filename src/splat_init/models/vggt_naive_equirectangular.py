@@ -20,6 +20,7 @@ from vggt.models.vggt import VGGT
 
 from configs.constants import TRAIN_PREFIX, VALIDATION_PREFIX, VGGT_TARGET_SIZE
 from splat_init.data.datamodule_360 import SceneSample
+from utilities.pose import camera_centers, quat_to_mat_xyzw
 
 
 @dataclass
@@ -113,36 +114,6 @@ class VggtNaiveEquirectangular(LightningModule):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _quat_to_mat_xyzw(quat: th.Tensor) -> th.Tensor:
-        """Convert quaternions (x, y, z, w) with scalar-last layout to rotation matrices."""
-
-        eps = th.finfo(quat.dtype).eps
-        quat_norm = quat / quat.norm(dim=-1, keepdim=True).clamp_min(eps)
-        x, y, z, w = th.unbind(quat_norm, dim=-1)
-
-        xx, yy, zz = x * x, y * y, z * z
-        xy, xz, yz = x * y, x * z, y * z
-        wx, wy, wz = w * x, w * y, w * z
-
-        m00 = 1.0 - 2.0 * (yy + zz)
-        m11 = 1.0 - 2.0 * (xx + zz)
-        m22 = 1.0 - 2.0 * (xx + yy)
-
-        m01 = 2.0 * (xy - wz)
-        m10 = 2.0 * (xy + wz)
-
-        m02 = 2.0 * (xz + wy)
-        m20 = 2.0 * (xz - wy)
-
-        m12 = 2.0 * (yz - wx)
-        m21 = 2.0 * (yz + wx)
-
-        row0 = th.stack((m00, m01, m02), dim=-1)
-        row1 = th.stack((m10, m11, m12), dim=-1)
-        row2 = th.stack((m20, m21, m22), dim=-1)
-        return th.stack((row0, row1, row2), dim=1)
-
-    @staticmethod
     def _geodesic_so3(R_gt: th.Tensor, R_pred: th.Tensor) -> th.Tensor:
         """Return the geodesic distance (radians) between rotation matrices."""
 
@@ -195,7 +166,7 @@ class VggtNaiveEquirectangular(LightningModule):
         """Convert pose encoding into homogeneous transformation matrices."""
 
         quat, translation, _ = self._from_pose_encoding(pose)
-        rotation = self._quat_to_mat_xyzw(quat)
+        rotation = quat_to_mat_xyzw(quat)
 
         mats = th.zeros((*rotation.shape[:-2], 4, 4), device=rotation.device, dtype=rotation.dtype)
         mats[..., :3, :3] = rotation
@@ -210,13 +181,6 @@ class VggtNaiveEquirectangular(LightningModule):
         ref_inv = th.linalg.inv(mats[0])
         relative = mats @ ref_inv
         return relative[:, :3, :3]
-
-    @staticmethod
-    def _camera_centers(mats: th.Tensor) -> th.Tensor:
-        """Compute camera centres in world coordinates from pose matrices."""
-
-        inv = th.linalg.inv(mats)
-        return inv[..., :3, 3]
 
     def _write_poses(
         self,
@@ -266,14 +230,14 @@ class VggtNaiveEquirectangular(LightningModule):
 
         pose_mats = processed.pose[:num_views]
         target_rot = self._relative_rotations(pose_mats)
-        target_centers = self._camera_centers(pose_mats)
+        target_centers = camera_centers(pose_mats)
         target_centers_rel = target_centers - target_centers[:1]
 
         pred_ref_inv = th.linalg.inv(pose_mats_pred[0])
         pose_rel_pred = pose_mats_pred @ pred_ref_inv
         pred_rot_rel = pose_rel_pred[:, :3, :3]
 
-        pred_centers = th.linalg.inv(pose_mats_pred)[..., :3, 3]
+        pred_centers = camera_centers(pose_mats_pred)
         pred_centers_rel = pred_centers - pred_centers[:1]
 
         loss_rot = self._geodesic_so3(target_rot[1:], pred_rot_rel[1:]).mean()

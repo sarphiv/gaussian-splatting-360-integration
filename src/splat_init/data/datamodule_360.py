@@ -53,6 +53,9 @@ class SceneSample:
     pose: Tensor
     focal_length: Tensor | None
 
+    def __len__(self) -> int:
+        return self.pose.shape[0]
+
 
 class SceneSampleLazy:
     def __init__(self, id: str, loader: Callable[[Sequence[int]], SceneSample], length: int):
