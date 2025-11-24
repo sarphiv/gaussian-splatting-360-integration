@@ -6,10 +6,10 @@ import rerun.blueprint as rrb
 import torch as th
 import numpy as np
 
-from splat_init.data.stanford_2d_3d import Stanford2D3DDataset, SceneSample
-from splat_init.models.vggt_perspective_transform import OTCProjector, cube_face_relative_rotations
 from configs.training_args import Args
 from configs.constants import VGGT_TARGET_SIZE
+from splat_init.data.stanford_2d_3d import Stanford2D3DDataset, SceneSample
+from utilities.otc_projector import OTCProjector, cube_face_relative_rotations
 from utilities.pose import procrustes_analysis
 
 

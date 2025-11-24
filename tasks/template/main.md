@@ -3,13 +3,13 @@ What is the purpose of this agent?
 
 
 # Plan
-- Only use the existing headings of the template.
-- Lines beginning with `-` or `#` may not be modified.
-- Plans are written as nested to-do lists of actions and changes.
-- The plan is a living document so it must be updated to be accurate.
-- The plan also serves as a log, so all actions and changes must be present.
-- All items must be broken down into general and detailed steps in that order.
-- Update the general plan first, then the detailed plan, then execute, then review. Repeat this line until completion.
+-- Only use the existing headings of the template.
+-- Lines beginning with `--` or `#` may not be modified.
+-- Plans are written as nested to-do lists of actions and changes.
+-- The plan is a living document so it must be updated to be accurate.
+-- The plan also serves as a log, so all actions and changes must be present.
+-- All items must be broken down into general and detailed steps in that order.
+-- Update the general plan first, then the detailed plan, then execute, then review. Repeat this line until completion.
 
 ## General
 - [] Collect necessary information.
@@ -36,7 +36,7 @@ What is the purpose of this agent?
 
 
 # Assumptions
-- Only for untestable assumptions. Testable assumptions should be verified through experiments.
+-- Only for untestable assumptions. Testable assumptions should be verified through experiments.
 
 1. Assumption 1
 2. Assumption 2
@@ -44,7 +44,7 @@ What is the purpose of this agent?
 
 
 # Questions
-- Important questions about the task that cannot be answered without help.
+-- Important questions about the task that cannot be answered without help.
 
 1. Question 1
 2. Question 2
