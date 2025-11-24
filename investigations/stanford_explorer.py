@@ -1,6 +1,5 @@
 from pathlib import Path
-from dataclasses import dataclass
-from typing import cast, Callable
+from typing import cast
 
 import rerun as rr
 import rerun.blueprint as rrb
@@ -11,6 +10,7 @@ from splat_init.data.stanford_2d_3d import Stanford2D3DDataset, SceneSample
 from splat_init.models.vggt_perspective_transform import OTCProjector, cube_face_relative_rotations
 from configs.training_args import Args
 from configs.constants import VGGT_TARGET_SIZE
+from utilities.pose import procrustes_analysis
 
 
 # PRED_PATH = Path("outputs/2025-10-05T17:30:48")
@@ -32,41 +32,7 @@ COLOR_GT = [0.0, 1.0, 0.0]
 COLOR_PRED = [1.0, 1.0, 0.0]
 COLOR_PERSP = [0.5, 0.0, 0.0]
 
-
-
 # TODO: Refactor perspective directions to x right, y up, z backward
-
-
-def procrustes_analysis(pred: th.Tensor, target: th.Tensor) -> Callable[[th.Tensor, th.Tensor], tuple[th.Tensor, th.Tensor]]:
-    assert pred.shape == target.shape, "Predicted and target arrays must match in shape."
-    pred_centroid = pred.mean(dim=0)
-    target_centroid = target.mean(dim=0)
-
-    pred_centered = pred - pred_centroid
-    target_centered = target - target_centroid
-
-    covariance = pred_centered.T @ target_centered
-    u, singular_values, vt = th.linalg.svd(covariance)
-
-    align_rotation = u @ vt
-    if th.linalg.det(align_rotation) < 0:
-        vt[-1, :] *= -1
-        align_rotation = u @ vt
-
-    scale_numerator = singular_values.sum()
-    scale_denominator = th.sum(pred_centered ** 2)
-    assert scale_denominator > 0.0, "Predicted scene must span more than a single point."
-    scale = scale_numerator / scale_denominator
-
-    def procrustes_align(position: th.Tensor, rotation: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
-        aligned_pos = scale * (position - pred_centroid) @ align_rotation + target_centroid
-        aligned_rot = rotation @ align_rotation
-        return aligned_pos, aligned_rot
-
-    return procrustes_align
-
-
-
 
 args_main = Args()
 

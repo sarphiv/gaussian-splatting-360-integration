@@ -1,12 +1,94 @@
 from __future__ import annotations
 
+from typing import Callable
+
 import torch as th
+from kornia.geometry.conversions import axis_angle_to_rotation_matrix, rotation_matrix_to_axis_angle
+from tqdm import tqdm
 
 
 def camera_centers(pose: th.Tensor) -> th.Tensor:
     """Compute camera centres from pose matrices."""
     inv = th.linalg.inv(pose)
     return inv[..., :3, 3]
+
+
+def pose_from_center_and_rotation(center: th.Tensor, rotation: th.Tensor) -> th.Tensor:
+    """Assemble world-to-camera pose matrices from camera centres and rotations."""
+
+    pose = rotation.new_zeros((*rotation.shape[:-2], 4, 4))
+    pose[..., :3, :3] = rotation
+    pose[..., :3, 3] = -(rotation @ center.unsqueeze(-1)).squeeze(-1)
+    pose[..., 3, 3] = 1.0
+    return pose
+
+
+def _procrustes_components(
+    source: th.Tensor, target: th.Tensor, allow_scale: bool
+) -> tuple[th.Tensor, th.Tensor, th.Tensor, th.Tensor]:
+    assert source.shape == target.shape, "Source and target arrays must match in shape."
+
+    source_centroid = source.mean(dim=0)
+    target_centroid = target.mean(dim=0)
+
+    source_centered = source - source_centroid
+    target_centered = target - target_centroid
+
+    covariance = source_centered.transpose(-1, -2) @ target_centered
+    u, singular_values, vt = th.linalg.svd(covariance)
+
+    rotation = u @ vt
+    if th.linalg.det(rotation) < 0:
+        vt[..., -1, :] *= -1
+        rotation = u @ vt
+
+    if allow_scale:
+        scale_denominator = th.sum(source_centered ** 2)
+        assert scale_denominator > 0.0, "Source scene must span more than a single point."
+        scale = singular_values.sum() / scale_denominator
+    else:
+        scale = th.ones((), device=source.device, dtype=source.dtype)
+
+    return rotation, scale, source_centroid, target_centroid
+
+
+def procrustes_analysis(
+    source: th.Tensor, target: th.Tensor, allow_scale: bool = True
+) -> Callable[[th.Tensor, th.Tensor], tuple[th.Tensor, th.Tensor]]:
+    """Return an aligner that rigidly (and optionally uniformly) scales ``source`` onto ``target``.
+
+    The returned function expects position tensors shaped ``[..., 3]`` and rotation matrices shaped
+    ``[..., 3, 3]`` and applies the same alignment computed from ``source`` and ``target``.
+    """
+
+    rotation, scale, source_centroid, target_centroid = _procrustes_components(source, target, allow_scale)
+
+    def procrustes_align(position: th.Tensor, rotation_mats: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
+        aligned_pos = scale * (position - source_centroid) @ rotation + target_centroid
+        aligned_rot = rotation_mats @ rotation
+        return aligned_pos, aligned_rot
+
+    return procrustes_align
+
+
+def procrustes_transform(
+    source_pose: th.Tensor, target_pose: th.Tensor, input_pose: th.Tensor, allow_scale: bool = True
+) -> th.Tensor:
+    """Align ``input_pose`` using a Procrustes alignment computed from ``source_pose`` to ``target_pose``.
+
+    Alignment is estimated on camera centres of ``source_pose`` and ``target_pose`` and then applied to
+    the positions and rotations of ``input_pose``.
+    """
+
+    assert source_pose.shape == target_pose.shape, "Source and target poses must match in shape."
+
+    source_pos = camera_centers(source_pose)
+    target_pos = camera_centers(target_pose)
+
+    align = procrustes_analysis(source_pos, target_pos, allow_scale=allow_scale)
+    aligned_pos, aligned_rot = align(camera_centers(input_pose), input_pose[..., :3, :3])
+
+    return pose_from_center_and_rotation(aligned_pos, aligned_rot)
 
 
 def quat_to_mat_xyzw(quat: th.Tensor) -> th.Tensor:
@@ -106,3 +188,29 @@ def mean_rotation_markley(rotations: th.Tensor, weights: th.Tensor | None = None
     quat = mat_to_quat_xyzw(rotations)
     dominant = mean_quaternion_markley(quat, weights)
     return quat_to_mat_xyzw(dominant)
+
+
+def mean_rotation_karcher(rot: th.Tensor, verbose: bool = False, max_iter: int = 200, tol: float = 1e-9) -> th.Tensor:
+    """Compute Karcher mean of rotation matrices via Weiszfeld iterations."""
+
+    assert rot.shape[0] > 0, "Rotation tensor must have at least one element."
+    assert len(rot.shape) == 3, "Rotation tensor must be batched."
+
+    mean = axis_angle_to_rotation_matrix(rotation_matrix_to_axis_angle(rot).mean(dim=0)[None])
+
+    prev_norm = None
+    iterator = tqdm(range(max_iter), desc="Karcher Mean Iterations", disable=not verbose)
+    for _ in iterator:
+        axis_angles = rotation_matrix_to_axis_angle(rot @ mean.permute(0, 2, 1))
+        delta = axis_angles.mean(dim=0)[None]
+        mean = axis_angle_to_rotation_matrix(0.5 * delta) @ mean
+
+        curr_norm = th.sqrt(th.sum(delta**2)).item()
+        iterator.set_postfix(loss=curr_norm)
+
+        if prev_norm is not None and abs(curr_norm - prev_norm) < tol:
+            break
+        prev_norm = curr_norm
+
+    iterator.close()
+    return mean[0]

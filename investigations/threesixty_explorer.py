@@ -1,23 +1,17 @@
 from pathlib import Path
-from dataclasses import dataclass
-from turtle import forward
-from typing import cast, Callable
+from typing import cast
 from os import environ
-from math import pi, ceil, degrees
+from math import degrees
 
 import rerun as rr
 import rerun.blueprint as rrb
 import torch as th
-import torchvision.transforms.functional as tvf
 import numpy as np
 from loguru import logger
-from tqdm import tqdm
-from kornia.geometry.conversions import rotation_matrix_to_axis_angle, axis_angle_to_rotation_matrix
 
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset, SceneSample
-from splat_init.models.vggt_perspective_transform import OTCProjector, cube_face_relative_rotations
 from configs.training_args import Args
-from configs.constants import VGGT_TARGET_SIZE
+from utilities.pose import mean_rotation_karcher, procrustes_analysis
 
 
 # PRED_PATH = Path("outputs/vipe_results")
@@ -36,64 +30,6 @@ COLOR_PERSP = [0.5, 0.0, 0.0]
 
 
 # TODO: Refactor perspective directions to x right, y up, z backward
-
-
-def procrustes_analysis(pred: th.Tensor, target: th.Tensor) -> Callable[[th.Tensor, th.Tensor], tuple[th.Tensor, th.Tensor]]:
-    assert pred.shape == target.shape, "Predicted and target arrays must match in shape."
-    pred_centroid = pred.mean(dim=0)
-    target_centroid = target.mean(dim=0)
-
-    pred_centered = pred - pred_centroid
-    target_centered = target - target_centroid
-
-    covariance = pred_centered.T @ target_centered
-    u, singular_values, vt = th.linalg.svd(covariance)
-
-    align_rotation = u @ vt
-    if th.linalg.det(align_rotation) < 0:
-        vt[-1, :] *= -1
-        align_rotation = u @ vt
-
-    scale_numerator = singular_values.sum()
-    scale_denominator = th.sum(pred_centered ** 2)
-    assert scale_denominator > 0.0, "Predicted scene must span more than a single point."
-    scale = scale_numerator / scale_denominator
-
-    def procrustes_align(position: th.Tensor, rotation: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
-        aligned_pos = scale * (position - pred_centroid) @ align_rotation + target_centroid
-        aligned_rot = rotation @ align_rotation
-        return aligned_pos, aligned_rot
-
-    return procrustes_align
-
-
-def karcher_mean(rot: th.Tensor, verbose=False, max_iter=200, tol=1e-9) -> th.Tensor:
-    # Weiszfeld algorithm for Karcher mean
-    # Based on: Question 28, https://15462.courses.cs.cmu.edu/fall2021content/exercises/Solutions06.pdf
-    assert rot.shape[0] > 0, "Rotation tensor must have at least one element."
-    assert len(rot.shape) == 3, "Rotation tensor must be batched."
-
-    mean = axis_angle_to_rotation_matrix(rotation_matrix_to_axis_angle(rot).mean(dim=0)[None])
-
-    A_norm_prev = None
-    for _ in (pbar:= tqdm(range(max_iter), desc="Karcher Mean Iterations", disable=not verbose)):
-        A_i = rotation_matrix_to_axis_angle(rot @ mean.permute(0, 2, 1))
-        A = A_i.mean(dim=0)[None]
-        mean = axis_angle_to_rotation_matrix(0.5 * A) @ mean
-
-        A_norm = th.sqrt(th.sum(A**2))
-
-        pbar.set_postfix(loss=A_norm.item())
-
-        if A_norm_prev is not None and abs(A_norm.item() - A_norm_prev) < tol:
-            break
-        A_norm_prev = A_norm.item()
-
-    pbar.close()
-
-    return mean[0]
-
-
 args_main = Args()
 
 # projector = OTCProjector(face_size=VGGT_TARGET_SIZE, alpha=1e-9)
@@ -186,7 +122,7 @@ procrustes_align = procrustes_analysis(preds[:, :3, 3], sample_full_gt_poses.inv
 
 
 pos_gt_prev = None
-rot_delta = karcher_mean(
+rot_delta = mean_rotation_karcher(
     sample_full_gt_poses.inverse()[:len(preds), :3, :3] @ procrustes_align(preds[:, :3, 3], preds[:, :3, :3])[1].inverse()
 )
 

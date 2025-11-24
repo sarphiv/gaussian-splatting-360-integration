@@ -6,7 +6,10 @@ import torch as th
 from lightning.pytorch import LightningModule
 
 from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
-from utilities.pose import camera_centers, mean_rotation_markley
+from utilities.pose import (
+    mean_rotation_markley,
+    procrustes_transform,
+)
 
 
 class SequenceChunker(LightningModule):
@@ -41,7 +44,7 @@ class SequenceChunker(LightningModule):
 
             overlap_rel = slice(overlap_range.start - start, overlap_range.stop - start)
             overlap_target = pose_pred[overlap_range.start:overlap_range.stop]
-            aligned_pose = self._align_chunk(pose_chunk, overlap_rel, overlap_target)
+            aligned_pose = procrustes_transform(pose_chunk[overlap_rel], overlap_target, pose_chunk, allow_scale=True)
 
             pre_len = overlap_range.start - start
             if pre_len > 0:
@@ -95,46 +98,6 @@ class SequenceChunker(LightningModule):
             pose=scene.pose[slice_idx],
             focal_length=focal,
         )
-
-    @staticmethod
-    def _align_chunk(pose_chunk: th.Tensor, overlap_rel: slice, target: th.Tensor) -> th.Tensor:
-        """Rigidly align one chunk's poses to the accumulated predictions."""
-        overlap_chunk = pose_chunk[overlap_rel]
-        rotation, translation = SequenceChunker._rigid_transform(
-            camera_centers(overlap_chunk),
-            camera_centers(target),
-        )
-        return SequenceChunker._apply_transform(pose_chunk, rotation, translation)
-
-    @staticmethod
-    def _rigid_transform(source: th.Tensor, target: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
-        """Return the rotation and translation aligning ``source`` points to ``target``."""
-        source_mean = source.mean(dim=0)
-        target_mean = target.mean(dim=0)
-
-        source_centered = source - source_mean
-        target_centered = target - target_mean
-        covariance = source_centered.transpose(-1, -2) @ target_centered
-
-        u, _, v_t = th.linalg.svd(covariance)
-        rot = v_t.transpose(-1, -2) @ u.transpose(-1, -2)
-        if th.linalg.det(rot) < 0:
-            v_t[..., -1, :] *= -1
-            rot = v_t.transpose(-1, -2) @ u.transpose(-1, -2)
-
-        translation = target_mean - rot @ source_mean
-        return rot, translation
-
-    @staticmethod
-    def _apply_transform(pose: th.Tensor, rotation: th.Tensor, translation: th.Tensor) -> th.Tensor:
-        """Apply a rigid transform to a set of pose matrices."""
-        rot = rotation @ pose[..., :3, :3]
-        trans = (rotation @ pose[..., :3, 3].unsqueeze(-1)).squeeze(-1) + translation
-
-        transformed = pose.clone()
-        transformed[..., :3, :3] = rot
-        transformed[..., :3, 3] = trans
-        return transformed
 
     @staticmethod
     def _fuse_poses(existing: th.Tensor, incoming: th.Tensor) -> th.Tensor:
