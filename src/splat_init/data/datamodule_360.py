@@ -128,7 +128,7 @@ class DataModule360[T: (SceneSample | SceneSampleLazy)](L.LightningDataModule):
     def __init__(
         self,
         *,
-        train_datasets: Sequence[Callable[[], Dataset[T]]],
+        train_datasets: Sequence[Callable[[], Dataset[T]]]| None = None,
         val_datasets: Sequence[Callable[[], Dataset[T]]] | None = None,
         test_datasets: Sequence[Callable[[], Dataset[T]]] | None = None,
         batch_size: int = 1,
@@ -142,7 +142,7 @@ class DataModule360[T: (SceneSample | SceneSampleLazy)](L.LightningDataModule):
         shuffle_test: bool = False,
     ) -> None:
         super().__init__()
-        self._train_fns = list(train_datasets)
+        self._train_fns = list(train_datasets) if train_datasets else []
         self._val_fns = list(val_datasets) if val_datasets else []
         self._test_fns = list(test_datasets) if test_datasets else []
 

@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from typing import cast, Sequence, Callable
+from typing import Iterator, cast, Sequence, Callable
 from pathlib import Path
 import json
-from os import environ
 
 import torch as th
-from torch.utils.data import Dataset
+from torch.utils.data import IterableDataset
 from torchvision.io import decode_image, ImageReadMode
 from joblib import Parallel, delayed
 from loguru import logger
@@ -14,7 +13,7 @@ from loguru import logger
 from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
 
 
-class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](Dataset[T]):
+class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]):
     def __init__(self, output_type: type[T], data_dir: Path, stride: int = 1, depth_required: bool = True, worker_count: int = 1) -> None:
         super().__init__()
 
@@ -120,25 +119,14 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](Dataset[T]):
 
         return cast(T, output)
 
+    
+    def __iter__(self) -> Iterator[T]:
+        for idx in range(len(self)):
+            yield self[idx]
+
 
     def load_poses(self, idx: int) -> th.Tensor:
         return th.stack(self.poses[self.scene_ids[idx]])
     
     def load_rgba(self, idx: int, seq_idx: int) -> th.Tensor:
         return self._load_rgba(self.rgb_paths[self.scene_ids[idx]][seq_idx])
-
-
-
-if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-
-    logger.info("Initializing dataset")
-    ds = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=20, worker_count=4)
-
-    logger.info("Loading data")
-    img = ds[0].depth[0].permute(1, 2, 0).numpy()
-    
-    logger.info("Plotting image")
-    # plt.imshow(img)
-    plt.hist(img.flatten())
-    plt.show()

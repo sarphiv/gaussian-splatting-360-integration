@@ -10,8 +10,8 @@ from lightning.pytorch.callbacks import LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 import torch
 
-from splat_init.data.datamodule_360 import DataModule360
-from splat_init.data.stanford_2d_3d import Stanford2D3DDataset, SceneSample
+from splat_init.data.datamodule_360 import DataModule360, SceneSample
+from splat_init.data.stanford_2d_3d import Stanford2d3dDataset
 from splat_init.models.vggt_perspective_transform import VggtPerspectiveTransform
 from splat_init.models.vggt_naive_equirectangular import VggtNaiveEquirectangular
 from configs.training_args import Args
@@ -26,10 +26,21 @@ from configs.training_args import Args
 def _stanford_callables(
     paths: Sequence[Path],
     max_sequence_length: int | None = None,
-) -> list[Callable[[], Stanford2D3DDataset]]:
-    """Create dataset constructors for provided Stanford area directories."""
+) -> list[Callable[[], Stanford2d3dDataset[SceneSample]]]:
+    """Create dataset constructors combining provided Stanford areas."""
+    if len(paths) == 0:
+        return []
 
-    return [lambda p=p: Stanford2D3DDataset(SceneSample, p, max_sequence_length) for p in paths]
+    dataset_root = paths[0].parent
+    assert all(p.parent == dataset_root for p in paths)
+
+    area_names = [p.name for p in paths]
+    return [lambda: Stanford2d3dDataset(
+        SceneSample,
+        dataset_root,
+        max_sequence_length,
+        area_names=area_names,
+    )]
 
 
 def _build_datamodule(args: Args) -> DataModule360:

@@ -1,8 +1,3 @@
-"""Typed configuration dataclasses for training and data loading.
-
-These are used by the 360° training entrypoint. Keep focused and minimal.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -17,20 +12,11 @@ from lightning.fabric.plugins.precision.precision import (
 
 @dataclass(frozen=True)
 class ModelArgs:
-    """Minimal model hyperparameters.
-
-    Extend as the model matures. Defaults target a stable baseline.
-    """
-
     output_dir: Path | None = Path(datetime.now(timezone.utc).strftime("outputs/%Y-%m-%dT%H:%M:%S"))
 
 
 @dataclass(frozen=True)
 class DataArgs:
-    """Dataset configuration for 360° training.
-
-    Provide one or more Stanford area directories for each stage.
-    """
     max_sequence_length: int | None = 8
     stanford_train_areas: Sequence[Path] = tuple(
         Path(environ.get("DATASET_STANFORD_2D_3D_ROOT", "")) / area

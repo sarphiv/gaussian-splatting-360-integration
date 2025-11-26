@@ -1,8 +1,10 @@
 """Stanford 2D-3D Panorama Dataset utilities (data-oriented).
 
-This module provides a dataset that groups all panoramas from the same room
-within a given Stanford 2D-3D ``area_*`` directory. It indexes once at init and
-returns per-room batches on demand.
+This module provides:
+- ``Stanford2D3DAreaDataset`` for grouping all panoramas from the same room
+  within a single ``area_*`` directory.
+- ``Stanford2d3dDataset`` for combining multiple areas into one dataset while
+  retaining area-aware indexing.
 
 Dataset specifics (as seen in area_1_no_xyz):
 - Directories: ``pano/{rgb,depth,pose}``.
@@ -21,7 +23,8 @@ Returned sample
 """
 from __future__ import annotations
 
-from typing import Callable, Sequence, cast
+from typing import Callable, Iterator, Sequence, cast
+from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
@@ -45,6 +48,18 @@ _ROOM_REGEX = re.compile(r"camera_[^_]+_(?P<room>.+?)_frame_")
 _CAMEL_TO_KEBAB = re.compile(r"(?<!^)(?=[A-Z])")
 
 
+def _is_area_dir(path: Path) -> bool:
+    """Check whether ``path`` looks like a Stanford 2D-3D area directory."""
+
+    return path.is_dir() and (path / "pano").is_dir()
+
+
+def _discover_area_dirs(dataset_root: Path) -> list[Path]:
+    """List area directories under the dataset root, sorted by name."""
+
+    return sorted([p for p in dataset_root.iterdir() if _is_area_dir(p)], key=lambda p: p.name)
+
+
 def _load_pose_json(path: Path) -> tuple[Tensor, float]:
     """Load a pose and focal length from Stanford pose JSON as [4,4] float32."""
 
@@ -61,7 +76,7 @@ def _load_pose_json(path: Path) -> tuple[Tensor, float]:
 # -----------------------------------------------------------------------------
 
 
-class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.Dataset[T]):
+class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.IterableDataset[T]):
     """Data-oriented dataset grouping all views per room in one Stanford area.
 
     Specific to pano/{rgb,depth,pose} with JSON pose format containing
@@ -72,7 +87,7 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
     - max_sequence_length: Optional cap on the number of views per room. Rooms
       exceeding this length are skipped entirely when indexing.
     - perspective_workers: Optional thread count for loading perspective views
-      in parallel. Defaults to ``min(4, max(1, cpu_count // 2))``.
+      in parallel. Defaults to 1 (single-threaded).
     """
 
     def __init__(
@@ -257,9 +272,14 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
         elif self.output_type is SceneSample:
             output = loader(range(view_count))
         else:
-            raise TypeError(f"Unsupported dataset item type: {T}")
+            raise TypeError(f"Unsupported dataset item type: {self.output_type}")
 
         return cast(T, output)
+
+
+    def __iter__(self) -> Iterator[T]:
+        for idx in range(len(self)):
+            yield self[idx]
 
 
     def get_perspective(self, idx: int) -> SceneSample:
@@ -299,6 +319,91 @@ class Stanford2D3DDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.D
         return SceneSample(scene_id, rgba_batch, depth_batch, pose_batch, focal_length_batch)
 
 
+class Stanford2d3dDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.IterableDataset[T]):
+    """Unified Stanford 2D-3D dataset spanning all ``area_*`` folders.
+
+    Combines all discovered ``Stanford2D3DAreaDataset`` instances under a
+    dataset root. Indexing is global across all rooms, while
+    ``get_perspective`` remains area-aware via ``(area_idx, room_idx)``.
+    Areas are kept in sorted order by directory name and can be restricted via
+    ``area_names``.
+    """
+
+    def __init__(
+        self,
+        output_type: type[T],
+        dataset_root: Path,
+        max_sequence_length: int | None = None,
+        perspective_loader_threads: int = 1,
+        area_names: Sequence[str] | None = None,
+    ) -> None:
+        super().__init__()
+
+        area_dirs = _discover_area_dirs(dataset_root)
+        assert len(area_dirs) > 0, f"No area directories found under {dataset_root}"
+
+        if area_names is not None:
+            allowed = set(area_names)
+            area_dirs = [p for p in area_dirs if p.name in allowed]
+            assert len(area_dirs) == len(allowed), "Missing requested area directories"
+
+        self._areas: list[Stanford2D3DAreaDataset[T]] = [
+            Stanford2D3DAreaDataset(
+                output_type=output_type,
+                area_dir=area_dir,
+                max_sequence_length=max_sequence_length,
+                perspective_loader_threads=perspective_loader_threads,
+            )
+            for area_dir in area_dirs
+        ]
+
+        self._area_dirs = area_dirs
+        self._area_lengths: list[int] = [len(area_ds) for area_ds in self._areas]
+        self._area_offsets: list[int] = []
+        total = 0
+        for length in self._area_lengths:
+            self._area_offsets.append(total)
+            total += length
+        self._length = total
+        self._area_end_offsets: list[int] = [start + length for start, length in zip(self._area_offsets, self._area_lengths)]
+
+    def __len__(self) -> int:  # pragma: no cover - trivial
+        return self._length
+
+    def index_to_area_room(self, idx: int) -> tuple[int, int]:
+        """Map global ``idx`` to ``(area_idx, room_idx)`` within that area."""
+
+        assert 0 <= idx < self._length
+
+        area_idx = bisect_right(self._area_end_offsets, idx)
+        start = 0 if area_idx == 0 else self._area_end_offsets[area_idx - 1]
+        return area_idx, idx - start
+
+    def area_room_to_index(self, area_idx: int, room_idx: int) -> int:
+        """Map an ``(area_idx, room_idx)`` pair to the global dataset index."""
+
+        assert 0 <= area_idx < len(self._areas)
+        assert 0 <= room_idx < self._area_lengths[area_idx]
+
+        return self._area_offsets[area_idx] + room_idx
+
+    def __getitem__(self, idx: int) -> T:
+        area_idx, room_idx = self.index_to_area_room(idx)
+        return self._areas[area_idx][room_idx]
+
+    def __iter__(self) -> Iterator[T]:
+        for area in self._areas:
+            for room_sample in area:
+                yield room_sample
+
+    def get_perspective(self, area_idx: int, room_idx: int) -> SceneSample:
+        """Load perspective views for ``room_idx`` inside ``area_idx``."""
+
+        assert 0 <= area_idx < len(self._areas)
+        return self._areas[area_idx].get_perspective(room_idx)
+
+
 __all__ = [
-    "Stanford2D3DDataset",
+    "Stanford2D3DAreaDataset",
+    "Stanford2d3dDataset",
 ]

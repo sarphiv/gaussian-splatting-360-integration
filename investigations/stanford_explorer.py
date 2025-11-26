@@ -8,7 +8,7 @@ import numpy as np
 
 from configs.training_args import Args
 from configs.constants import VGGT_TARGET_SIZE
-from splat_init.data.stanford_2d_3d import Stanford2D3DDataset, SceneSample
+from splat_init.data.stanford_2d_3d import Stanford2d3dDataset, SceneSample
 from utilities.otc_projector import OTCProjector, cube_face_relative_rotations
 from utilities.pose import procrustes_analysis
 
@@ -38,9 +38,25 @@ args_main = Args()
 
 projector = OTCProjector(face_size=VGGT_TARGET_SIZE, alpha=1e-9)
 
-datasets = [Stanford2D3DDataset(SceneSample, p, args_main.data.max_sequence_length, 12) for p in args_main.data.stanford_val_areas]
-sample_env = datasets[DATASET_IDX].get_perspective(SCENE_IDX)
-sample_gt = datasets[DATASET_IDX][SCENE_IDX]
+val_roots = args_main.data.stanford_val_areas
+assert len(val_roots) > 0
+dataset_root = val_roots[0].parent
+assert all(p.parent == dataset_root for p in val_roots)
+
+dataset = Stanford2d3dDataset(
+    SceneSample,
+    dataset_root,
+    args_main.data.max_sequence_length,
+    12,
+    area_names=[p.name for p in val_roots],
+)
+
+area_idx = DATASET_IDX
+room_idx = SCENE_IDX
+global_idx = dataset.area_room_to_index(area_idx, room_idx)
+
+sample_env = dataset.get_perspective(area_idx, room_idx)
+sample_gt = dataset[global_idx]
 assert sample_env.focal_length is not None
 
 preds = cast(dict[str, th.Tensor], th.load(PRED_PATH / f"{sample_gt.id}.pt" if PRED_PATH.is_dir() else PRED_PATH, map_location="cpu"))
