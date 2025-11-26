@@ -6,6 +6,43 @@ import torch as th
 from kornia.geometry.conversions import axis_angle_to_rotation_matrix, rotation_matrix_to_axis_angle
 from tqdm import tqdm
 
+def _normalize_vector(vec: th.Tensor, eps: float = 1e-8) -> th.Tensor:
+    norm = vec.norm(dim=-1, keepdim=True).clamp_min(eps)
+    return vec / norm
+
+
+def _orthonormal_vector(vec: th.Tensor, eps: float = 1e-8) -> th.Tensor:
+    basis_x = th.tensor((1.0, 0.0, 0.0), device=vec.device, dtype=vec.dtype).expand_as(vec)
+    basis_y = th.tensor((0.0, 1.0, 0.0), device=vec.device, dtype=vec.dtype).expand_as(vec)
+
+    cross_x = th.cross(vec, basis_x)
+    cross_y = th.cross(vec, basis_y)
+
+    use_x = cross_x.norm(dim=-1, keepdim=True) >= cross_y.norm(dim=-1, keepdim=True)
+    ortho = th.where(use_x, cross_x, cross_y)
+    return _normalize_vector(ortho, eps)
+
+
+def _rotate_vectors(vectors: th.Tensor, axes: th.Tensor, angles: th.Tensor) -> th.Tensor:
+    """Rotate ``vectors`` by ``angles`` around ``axes`` using Rodrigues' formula."""
+
+    angles = angles.unsqueeze(-1)
+    sin_theta = th.sin(angles)
+    cos_theta = th.cos(angles)
+
+    cross_term = th.cross(axes, vectors)
+    dot_term = (axes * vectors).sum(dim=-1, keepdim=True)
+
+    return vectors * cos_theta + cross_term * sin_theta + axes * dot_term * (1.0 - cos_theta)
+
+
+def _project_to_plane(vec: th.Tensor, normal: th.Tensor, eps: float = 1e-8) -> th.Tensor:
+    """Project ``vec`` onto the plane orthogonal to ``normal`` and renormalize."""
+
+    normal = _normalize_vector(normal, eps)
+    projection = vec - (vec * normal).sum(dim=-1, keepdim=True) * normal
+    return _normalize_vector(projection, eps)
+
 
 def camera_centers(pose: th.Tensor) -> th.Tensor:
     """Compute camera centres from pose matrices."""
@@ -21,6 +58,73 @@ def pose_from_center_and_rotation(center: th.Tensor, rotation: th.Tensor) -> th.
     pose[..., :3, 3] = -(rotation @ center.unsqueeze(-1)).squeeze(-1)
     pose[..., 3, 3] = 1.0
     return pose
+
+
+def pose_to_mat(rotation: th.Tensor, translation: th.Tensor) -> th.Tensor:
+    """Assemble SE(3) transformation matrices from rotation and translation."""
+    mats = rotation.new_zeros((*rotation.shape[:-2], 4, 4))
+    mats[..., :3, :3] = rotation
+    mats[..., :3, 3] = translation
+    mats[..., 3, 3] = 1.0
+    return mats
+
+
+def relative_rotations(pose: th.Tensor) -> th.Tensor:
+    """Rotation matrices relative to the first world-to-camera pose."""
+
+    ref_inv = th.linalg.inv(pose[0])
+    relative = pose @ ref_inv
+    return relative[..., :3, :3]
+
+
+def relative_centers(pose: th.Tensor) -> th.Tensor:
+    """Camera centres relative to the first view."""
+
+    centres = camera_centers(pose)
+    return centres - centres[:1]
+
+
+def geodesic_so3(R_gt: th.Tensor, R_pred: th.Tensor) -> th.Tensor:
+    """Geodesic distance (radians) between rotation matrices."""
+
+    delta = R_gt.transpose(-1, -2) @ R_pred
+    trace = th.diagonal(delta, dim1=-2, dim2=-1).sum(dim=-1)
+    cos_theta = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0)
+    return th.acos(cos_theta)
+
+
+def pointing_and_roll_errors(gt_rot: th.Tensor, pred_rot: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
+    """Decompose rotation error into pointing (forward) and roll components.
+
+    Both inputs are world-to-camera rotation matrices, typically relative to a
+    shared reference view. The pointing error measures the angular difference
+    between camera forward axes. The roll error measures the remaining rotation
+    about that forward axis after aligning the pointing directions.
+    """
+
+    assert gt_rot.shape == pred_rot.shape, "Rotation tensors must match in shape"
+
+    gt_cam_to_world = gt_rot.transpose(-1, -2)
+    pred_cam_to_world = pred_rot.transpose(-1, -2)
+
+    f_gt = _normalize_vector(gt_cam_to_world[..., :, 2])
+    f_pred = _normalize_vector(pred_cam_to_world[..., :, 2])
+    u_gt = _normalize_vector(gt_cam_to_world[..., :, 1])
+    u_pred = _normalize_vector(pred_cam_to_world[..., :, 1])
+
+    pointing_error = th.acos(th.clamp((f_gt * f_pred).sum(dim=-1), -1.0, 1.0))
+
+    raw_axis = th.cross(f_pred, f_gt)
+    axis_norm = raw_axis.norm(dim=-1, keepdim=True)
+    unit_axis = th.where(axis_norm > 1e-8, raw_axis / axis_norm, _orthonormal_vector(f_gt))
+
+    u_pred_aligned = _rotate_vectors(u_pred, unit_axis, pointing_error)
+
+    u_gt_proj = _project_to_plane(u_gt, f_gt)
+    u_pred_proj = _project_to_plane(u_pred_aligned, f_gt)
+
+    roll_error = th.acos(th.clamp((u_gt_proj * u_pred_proj).sum(dim=-1), -1.0, 1.0))
+    return pointing_error, roll_error
 
 
 def _procrustes_components(
@@ -159,15 +263,6 @@ def mat_to_quat_xyzw(mat: th.Tensor) -> th.Tensor:
 
     quat = quat / quat.norm(dim=-1, keepdim=True).clamp_min(eps)
     return quat
-
-
-def pose_to_mat(rotation: th.Tensor, translation: th.Tensor) -> th.Tensor:
-    """Assemble SE(3) transformation matrices from rotation and translation."""
-    mats = rotation.new_zeros((*rotation.shape[:-2], 4, 4))
-    mats[..., :3, :3] = rotation
-    mats[..., :3, 3] = translation
-    mats[..., 3, 3] = 1.0
-    return mats
 
 
 def mean_quaternion_markley(quat: th.Tensor, weights: th.Tensor | None = None) -> th.Tensor:

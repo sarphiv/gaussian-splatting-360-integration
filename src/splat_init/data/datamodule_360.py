@@ -58,28 +58,40 @@ class SceneSample:
 
 
 class SceneSampleLazy:
-    def __init__(self, id: str, loader: Callable[[Sequence[int]], SceneSample], length: int):
+    class SceneSamplePosesLazy:
+        def __init__(self, loader_poses: Callable[[Sequence[int]], Tensor], length: int):
+            self._loader = loader_poses
+            self._length = length
+
+        def __len__(self) -> int:
+            return self._length
+
+        def __getitem__(self, key: int | slice | Sequence[int] | Sequence[bool] | torch.Tensor) -> Tensor:
+            return self._loader(SceneSampleLazy._to_indices(key, self._length))
+
+
+    def __init__(self, id: str, loader_all: Callable[[Sequence[int]], SceneSample], loader_poses: Callable[[Sequence[int]], Tensor], length: int):
         self.id = id
         self._length = length
-        self._loader = loader
+        self._loader = loader_all
+        self.poses = SceneSampleLazy.SceneSamplePosesLazy(loader_poses, length)
 
-    def __len__(self) -> int:
-        return self._length
 
-    def __getitem__(self, key: int | slice | Sequence[int] | Sequence[bool] | torch.Tensor) -> SceneSample:
+    @staticmethod
+    def _to_indices(key: int | slice | Sequence[int] | Sequence[bool] | torch.Tensor, length: int) -> tuple[int, ...]:
         indices: tuple[int, ...] | None = None
 
         if  isinstance(key, int):
             indices = (key,)
         elif isinstance(key, slice):
-            indices = tuple(range(*key.indices(self._length)))
+            indices = tuple(range(*key.indices(length)))
         elif isinstance(key, tuple):
             indices = key
         elif isinstance(key, Sequence):
             all_bool = all(isinstance(k, bool) for k in key)
             all_int = all(isinstance(k, int) for k in key)
-            if len(key) > 0 and all_bool and len(key) != self._length:
-                raise IndexError(f"Index has length {len(key)} but expected {self._length}")
+            if len(key) > 0 and all_bool and len(key) != length:
+                raise IndexError(f"Index has length {len(key)} but expected {length}")
             elif len(key) > 0 and not all_bool and not all_int:
                 raise TypeError("Mixed types in index sequence")
             elif len(key) > 0 and all_bool:
@@ -91,8 +103,8 @@ class SceneSampleLazy:
         elif isinstance(key, torch.Tensor):
             if key.dim() != 1:
                 raise IndexError(f"Tensor index has shape {key.shape} but expected 1D")
-            elif key.dtype == torch.bool and key.shape != (self._length,):
-                raise IndexError(f"Boolean index has shape {key.shape} but expected ({self._length},)")
+            elif key.dtype == torch.bool and key.shape != (length,):
+                raise IndexError(f"Boolean index has shape {key.shape} but expected ({length},)")
             elif key.dtype == torch.bool:
                 indices = tuple(i for i, m in enumerate(key.tolist()) if m)
             else:
@@ -100,7 +112,14 @@ class SceneSampleLazy:
         else:
             raise TypeError(f"Unsupported index type: {type(key)}")
 
-        return self._loader(indices)
+        return indices
+
+
+    def __len__(self) -> int:
+        return self._length
+
+    def __getitem__(self, key: int | slice | Sequence[int] | Sequence[bool] | torch.Tensor) -> SceneSample:
+        return self._loader(self._to_indices(key, self._length))
 
 
 

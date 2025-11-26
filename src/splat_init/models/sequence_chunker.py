@@ -5,6 +5,7 @@ from pathlib import Path
 
 import torch as th
 from lightning.pytorch import LightningModule
+from tqdm import tqdm
 
 from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
 from utilities.pose import (
@@ -16,11 +17,12 @@ from utilities.pose import (
 class SequenceChunker(LightningModule):
     """Run a sequence model in overlapping chunks and merge the outputs."""
 
-    def __init__(self, model: th.nn.Module, chunk_size: int, chunk_overlap: int) -> None:
+    def __init__(self, model: th.nn.Module, chunk_size: int, chunk_overlap: int, verbose: bool) -> None:
         super().__init__()
         self.model = model
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
+        self.verbose = verbose
 
     def forward(self, sample: list[SceneSample] | list[SceneSampleLazy]) -> Tuple[th.Tensor, None, dict[str, th.Tensor]]:
         """Chunk a long sequence, align overlapping pose predictions, and fuse them."""
@@ -32,7 +34,8 @@ class SequenceChunker(LightningModule):
 
         pose_pred = th.zeros((len(scene), 4, 4), device=self.device, dtype=th.float32)
 
-        for chunk_range, overlap_range in zip(idx_chunks, idx_overlap):
+        iterator = tqdm(zip(idx_chunks, idx_overlap), desc="Processing chunks", leave=False, disable=not self.verbose)
+        for chunk_range, overlap_range in iterator:
             chunk_sample = self._slice_sample(scene, chunk_range)
             images = chunk_sample.rgba.to(device=self.device).unsqueeze(0)
             pose_chunk, _, _ = self.model(images)

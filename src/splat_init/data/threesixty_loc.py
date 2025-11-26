@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterator, cast, Sequence, Callable
+from typing import Iterator, Optional, cast, Sequence, Callable
 from pathlib import Path
 import json
 
@@ -35,7 +35,7 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
             in zip(self.scene_ids, scene_dirs)
         }
         self.depth_paths = {
-            id: (sorted((seq_dir / "depth").glob("*.png")) if (seq_dir / "depth").is_dir() else [None] * len(self.rgb_paths[id]))[::self.stride]
+            id: (sorted((seq_dir / "depth").glob("*.png"))[::self.stride] if (seq_dir / "depth").is_dir() else [None] * len(self.rgb_paths[id]))
             for id, seq_dir
             in zip(self.scene_ids, scene_dirs)
         }
@@ -74,8 +74,8 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
         return th.stack(cast(list[th.Tensor], Parallel(n_jobs=worker_count, backend="threading")(tasks)))
     
     @staticmethod
-    def _make_item_getter(scene_id: str, rgb_paths: list[Path], depth_paths: list[Path] | list[None], poses: list[th.Tensor], worker_count: int) -> Callable[[Sequence[int]], SceneSample]:
-        def getter(indices: Sequence[int]) -> SceneSample:
+    def _make_item_loaders(scene_id: str, rgb_paths: list[Path], depth_paths: list[Path] | list[None], poses: list[th.Tensor], worker_count: int) -> tuple[Callable[[Sequence[int]], SceneSample], Callable[[Sequence[int]], th.Tensor]]:
+        def loader_all(indices: Sequence[int]) -> SceneSample:
             load_rgba_tasks = (delayed(ThreeSixtyLocDataset._load_rgba)(p) for p in [rgb_paths[i] for i in indices])
             rgba = ThreeSixtyLocDataset._load_to_tensor(load_rgba_tasks, worker_count)
 
@@ -92,13 +92,18 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
                 focal_length=None
         )
 
-        return getter
+
+        def loader_poses(indices: Sequence[int]) -> th.Tensor:
+            return th.stack([poses[i] for i in indices])
+
+
+        return loader_all, loader_poses
 
 
     def __getitem__(self, idx: int) -> T:
         scene_id = self.scene_ids[idx]
 
-        loader = self._make_item_getter(
+        loader_all, loader_poses = self._make_item_loaders(
             scene_id,
             self.rgb_paths[scene_id],
             self.depth_paths[scene_id],
@@ -109,11 +114,12 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
         if self.output_type is SceneSampleLazy:
             output = SceneSampleLazy(
                 id=scene_id,
-                loader=loader,
+                loader_all=loader_all,
+                loader_poses=loader_poses,
                 length=len(self.poses[scene_id])
             )
         elif self.output_type is SceneSample:
-            output = loader(range(len(self.poses[scene_id])))
+            output = loader_all(range(len(self.poses[scene_id])))
         else:
             raise TypeError(f"Unsupported dataset item type: {T}")
 

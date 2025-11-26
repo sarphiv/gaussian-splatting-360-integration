@@ -223,8 +223,8 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
         return len(self._rooms)
 
     @staticmethod
-    def _make_item_getter(scene_id: str, rgba_paths: list[Path], depth_paths: list[Path], pose_paths: list[Path]) -> Callable[[Sequence[int]], SceneSample]:
-        def getter(indices: Sequence[int]) -> SceneSample:
+    def _make_item_loader(scene_id: str, rgba_paths: list[Path], depth_paths: list[Path], pose_paths: list[Path]) -> tuple[Callable[[Sequence[int]], SceneSample], Callable[[Sequence[int]], Tensor]]:
+        def loader_all(indices: Sequence[int]) -> SceneSample:
             rgba_imgs: list[Tensor] = []
             depth_imgs: list[Tensor] = []
             poses: list[Tensor] = []
@@ -247,8 +247,12 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
             pose_batch = torch.stack(poses, dim=0)  # [S,4,4]
 
             return SceneSample(scene_id, rgba_batch, depth_batch, pose_batch, None)
+        
+        def loader_poses(indices: Sequence[int]) -> Tensor:
+            return torch.stack([_load_pose_json(pose_paths[i])[0] for i in indices], dim=0)  # [S,4,4]
 
-        return getter
+
+        return loader_all, loader_poses
 
 
     def __getitem__(self, idx: int) -> T:
@@ -256,7 +260,7 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
         view_count = len(view_indices)
         scene_id = self._scene_ids[idx]
 
-        loader = self._make_item_getter(
+        loader_all, loader_poses = self._make_item_loader(
             scene_id,
             [self._rgba_paths[i] for i in view_indices],
             [self._depth_paths[i] for i in view_indices],
@@ -266,11 +270,12 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
         if self.output_type is SceneSampleLazy:
             output = SceneSampleLazy(
                 id=scene_id,
-                loader=loader,
+                loader_all=loader_all,
+                loader_poses=loader_poses,
                 length=view_count
             )
         elif self.output_type is SceneSample:
-            output = loader(range(view_count))
+            output = loader_all(range(view_count))
         else:
             raise TypeError(f"Unsupported dataset item type: {self.output_type}")
 

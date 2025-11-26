@@ -13,11 +13,10 @@ from lightning.fabric.plugins.precision.precision import (
 
 @dataclass(frozen=True)
 class ModelArgs:
-    precision: PRECISION_INPUT_STR = "16-mixed"
-    model: Literal["vggt_naive_equirectangular", "vggt_perspective_transform"] = "vggt_perspective_transform"
+    model: Literal["vggt_naive_equirectangular", "vggt_perspective_transform"] = "vggt_naive_equirectangular"
 
-    chunker_chunk_size: int = 16
-    chunker_chunk_overlap: int = 6
+    chunker_chunk_size: int = 8
+    chunker_chunk_overlap: int = 4
 
 
 @dataclass(frozen=True)
