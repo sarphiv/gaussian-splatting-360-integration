@@ -16,12 +16,11 @@ from utilities.pose import (
 class SequenceChunker(LightningModule):
     """Run a sequence model in overlapping chunks and merge the outputs."""
 
-    def __init__(self, model: th.nn.Module, chunk_size: int, chunk_overlap: int, output_file: Path | None) -> None:
+    def __init__(self, model: th.nn.Module, chunk_size: int, chunk_overlap: int) -> None:
         super().__init__()
         self.model = model
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        self.output_dir = output_file
 
     def forward(self, sample: list[SceneSample] | list[SceneSampleLazy]) -> Tuple[th.Tensor, None, dict[str, th.Tensor]]:
         """Chunk a long sequence, align overlapping pose predictions, and fuse them."""
@@ -60,9 +59,6 @@ class SequenceChunker(LightningModule):
             if overlap_range.stop < stop:
                 pose_pred[overlap_range.stop:stop] = aligned_pose[overlap_rel.stop:]
 
-
-        if self.output_dir is not None:
-            self._write_poses(self.output_dir / f"{scene.id}.pt", pose_pred)
 
         return pose_pred, None, {}
 
@@ -117,10 +113,3 @@ class SequenceChunker(LightningModule):
         fused[..., 3, :] = 0.0
         fused[..., 3, 3] = 1.0
         return fused
-
-
-    @staticmethod
-    def _write_poses(output_file: Path, poses: th.Tensor) -> None:
-        """Write the predicted poses to disk."""
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        th.save({"poses": poses.cpu()}, output_file)
