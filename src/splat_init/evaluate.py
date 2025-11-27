@@ -14,6 +14,7 @@ from splat_init.data.stanford_2d_3d import Stanford2d3dDataset
 from splat_init.models.sequence_chunker import SequenceChunker
 from splat_init.models.vggt_perspective_transform import VggtPerspectiveTransform
 from splat_init.models.vggt_naive_equirectangular import VggtNaiveEquirectangular
+from splat_init.models.vipe_panorama import VipePanorama
 from configs.evaluation_args import Args
 from utilities.pose import (
     camera_centers,
@@ -45,6 +46,7 @@ def _end_metrics(
     scene_idx: int,
     sequence_length: int,
     dataset_stride: int,
+    dataset_fps: float,
     chunker_chunk_size: int,
     chunker_chunk_overlap: int,
     model_name: str,
@@ -83,6 +85,7 @@ def _end_metrics(
         "scene_idx": scene_idx,
         "sequence_length": sequence_length,
         "dataset_stride": dataset_stride,
+        "dataset_fps": dataset_fps,
         "chunker_chunk_size": chunker_chunk_size,
         "chunker_chunk_overlap": chunker_chunk_overlap,
         "gpu_memory_allocated": gpu_alloc,
@@ -117,6 +120,7 @@ def _build_model(args: Args) -> SequenceChunker:
     models = {
         "vggt_perspective_transform": VggtPerspectiveTransform,
         "vggt_naive_equirectangular": VggtNaiveEquirectangular,
+        "vipe_panorama": lambda: VipePanorama(fps=args.data.dataset_fps),
     }
 
     return SequenceChunker(
@@ -159,6 +163,7 @@ def main() -> None:
             scene_idx=scene_idx,
             sequence_length=len(scene),
             dataset_stride=args.data.dataset_stride,
+            dataset_fps=args.data.dataset_fps,
             chunker_chunk_size=args.model.chunker_chunk_size,
             chunker_chunk_overlap=args.model.chunker_chunk_overlap,
             model_name=args.model.model,

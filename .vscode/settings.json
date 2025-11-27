@@ -1,4 +1,8 @@
 {
     "python.analysis.typeCheckingMode": "standard",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/src",
+        "${workspaceFolder}/vendor/vipe"
+    ],
     "debugpy.debugJustMyCode": false
 }

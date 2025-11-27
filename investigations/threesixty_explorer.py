@@ -13,7 +13,9 @@ from splat_init.data.threesixty_loc import ThreeSixtyLocDataset, SceneSample
 from utilities.pose import mean_rotation_karcher, procrustes_analysis
 
 
-PRED_PATH = Path("outputs/2025-11-27T03:39:14") # VGGT Perspective barely works
+# PRED_PATH = Path("outputs/2025-11-27T03:39:14") # VGGT Perspective barely works
+# PRED_PATH = Path("outputs/2025-11-27T05:34:31") # ViPE
+PRED_PATH = Path("outputs/2025-11-27T04:23:25")
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
