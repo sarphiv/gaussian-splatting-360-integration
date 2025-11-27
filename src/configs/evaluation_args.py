@@ -18,11 +18,11 @@ class ModelArgs:
 
 @dataclass(frozen=True)
 class DataArgs:
-    dataloader_workers: int = 8
+    dataloader_workers: int = 4
 
     dataset_name: Literal["stanford_2d_3d", "360_loc"] = "360_loc"
     dataset_dir: Path = Path(environ.get("DATASET_360_LOC_ROOT", ""))
-    dataset_stride: int = 8
+    dataset_stride: int = 3
     dataset_image_size: tuple[int, int] = (1538, 768) # Width x Height
 
 

@@ -38,7 +38,7 @@ class SequenceChunker(LightningModule):
         for chunk_range, overlap_range in iterator:
             chunk_sample = self._slice_sample(scene, chunk_range)
             images = chunk_sample.rgba.to(device=self.device).unsqueeze(0)
-            pose_chunk, _, _ = self.model(images)
+            pose_chunk, _, _ = self.model.forward(images)
             pose_chunk = pose_chunk[0]
 
             start, stop = chunk_range.start, chunk_range.stop

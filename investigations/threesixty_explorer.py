@@ -13,7 +13,7 @@ from splat_init.data.threesixty_loc import ThreeSixtyLocDataset, SceneSample
 from utilities.pose import mean_rotation_karcher, procrustes_analysis
 
 
-PRED_PATH = Path("outputs/2025-11-27T02:08:06")
+PRED_PATH = Path("outputs/2025-11-27T02:33:13")
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
@@ -241,12 +241,11 @@ rr.log(
         f"  - Index: {scene_idx}\n"
         f"  - Stride: {pred_metrics["dataset_stride"]}\n"
         f"  - Length: {pred_metrics["sequence_length"]}\n"
-        f"- Time (s):\n"
-        f"  - Elapsed: {cast(float, pred_metrics["elapsed_seconds"]):.2f}\n"
+        f"- Compute:\n"
         f"  - FPS: {cast(float, pred_metrics["sequence_length"]) / cast(float, pred_metrics["elapsed_seconds"]):.2f}\n"
-        f"- Compute (GB):\n"
-        f"  - GPU max: {cast(float, pred_metrics["gpu_memory_peak"]) / 1024**3:.2f}\n"
-        f"  - CPU RSS: {cast(float, pred_metrics["cpu_memory_rss"]) / 1024**3:.2f}\n"
+        f"  - Time (s): {cast(float, pred_metrics["elapsed_seconds"]):.2f}\n"
+        f"  - GPU max (GB): {cast(float, pred_metrics["gpu_memory_peak"]) / 1024**3:.2f}\n"
+        f"  - CPU RSS (GB): {cast(float, pred_metrics["cpu_memory_rss"]) / 1024**3:.2f}\n"
         f"- Errors:\n"
         f"  - Translation (m): {cast(float, pred_metrics["translation_error_mean"]):.2f} ± {cast(float, pred_metrics["translation_error_std"]):.2f}\n"
         f"  - Rotation Geodesic (°): {degrees(cast(float, pred_metrics["rotation_geodesic_mean"])):.2f} ± {degrees(cast(float, pred_metrics["rotation_geodesic_std"])):.2f}\n"

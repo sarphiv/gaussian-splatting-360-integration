@@ -141,7 +141,7 @@ def main() -> None:
     device = "cuda" if th.cuda.is_available() else "cpu"
     model = _build_model(args).to(device=device, dtype=dtype)
 
-    for scene_idx, scene in (pbar := tqdm(enumerate(dataset), desc="Evaluating scenes")):
+    for scene_idx, scene in (pbar := tqdm(enumerate(dataset), total=len(dataset), desc="Evaluating scenes")):
         # Metrics start
         pbar.set_postfix({"scene_id": scene.id})
         metrics_runtime = _start_metrics()
