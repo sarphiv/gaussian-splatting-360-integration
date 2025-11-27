@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 
 import torch as th
+from torchvision.transforms.functional import resize
 from torch.utils.data import IterableDataset
 from torchvision.io import decode_image, ImageReadMode
 from joblib import Parallel, delayed
@@ -14,13 +15,14 @@ from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
 
 
 class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]):
-    def __init__(self, output_type: type[T], data_dir: Path, stride: int = 1, depth_required: bool = True, worker_count: int = 1) -> None:
+    def __init__(self, output_type: type[T], data_dir: Path, stride: int = 1, depth_required: bool = True, image_size: tuple[int, int] = (6144, 3072), worker_count: int = 1) -> None:
         super().__init__()
 
         self.output_type = output_type
         self.data_dir = data_dir
         self.stride = stride
         self.depth_only = depth_required
+        self.image_size = image_size # Width x Height
         self.worker_count = worker_count
 
         search_dirs = [Path("query_360"), Path("mapping")]
@@ -52,8 +54,9 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
 
 
     @staticmethod
-    def _load_rgba(path: Path) -> th.Tensor:
+    def _load_rgba(path: Path, size: tuple[int, int]) -> th.Tensor:
         rgb = decode_image(str(path), mode=ImageReadMode.RGB).float() / 255.0
+        rgb = resize(rgb, size=list(size[::-1]))  # Resize to consistent size
         alpha = th.ones((1, rgb.shape[1], rgb.shape[2]), dtype=rgb.dtype)
         return th.cat([rgb, alpha], dim=0)
 
@@ -65,7 +68,7 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
             #  so the factor was found through trial and error of aligning of point clouds.
             #  A red container was found in scene index 2, and approximate measurements lead to a width of 6.0,
             #  while the true container is likely 5.9 meters long. The units are therefore likely meters.
-            return decode_image(str(path), mode=ImageReadMode.GRAY).float() * 0.01
+            return resize(decode_image(str(path), mode=ImageReadMode.GRAY).float() * 0.01, size=list(default_shape[1:]))
         else:
             return th.full(default_shape, float("inf"))
 
@@ -74,9 +77,9 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
         return th.stack(cast(list[th.Tensor], Parallel(n_jobs=worker_count, backend="threading")(tasks)))
     
     @staticmethod
-    def _make_item_loaders(scene_id: str, rgb_paths: list[Path], depth_paths: list[Path] | list[None], poses: list[th.Tensor], worker_count: int) -> tuple[Callable[[Sequence[int]], SceneSample], Callable[[Sequence[int]], th.Tensor]]:
+    def _make_item_loaders(scene_id: str, rgb_paths: list[Path], depth_paths: list[Path] | list[None], poses: list[th.Tensor], image_size: tuple[int, int], worker_count: int) -> tuple[Callable[[Sequence[int]], SceneSample], Callable[[Sequence[int]], th.Tensor]]:
         def loader_all(indices: Sequence[int]) -> SceneSample:
-            load_rgba_tasks = (delayed(ThreeSixtyLocDataset._load_rgba)(p) for p in [rgb_paths[i] for i in indices])
+            load_rgba_tasks = (delayed(ThreeSixtyLocDataset._load_rgba)(p, image_size) for p in [rgb_paths[i] for i in indices])
             rgba = ThreeSixtyLocDataset._load_to_tensor(load_rgba_tasks, worker_count)
 
             load_depth_tasks = (delayed(ThreeSixtyLocDataset._load_depth)(p, (1, *rgba.shape[2:])) for p in [depth_paths[i] for i in indices])
@@ -108,6 +111,7 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
             self.rgb_paths[scene_id],
             self.depth_paths[scene_id],
             self.poses[scene_id],
+            self.image_size,
             self.worker_count
         )
 
@@ -135,4 +139,4 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
         return th.stack(self.poses[self.scene_ids[idx]])
     
     def load_rgba(self, idx: int, seq_idx: int) -> th.Tensor:
-        return self._load_rgba(self.rgb_paths[self.scene_ids[idx]][seq_idx])
+        return self._load_rgba(self.rgb_paths[self.scene_ids[idx]][seq_idx], self.image_size)

@@ -32,6 +32,7 @@ import re
 
 import torch
 from torch import Tensor
+from torchvision.transforms.functional import resize
 from torchvision.io import read_image
 
 from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
@@ -95,6 +96,7 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
         output_type: type[T],
         area_dir: Path,
         max_sequence_length: int | None = None,
+        image_size: tuple[int, int] = (4096, 2048),
         perspective_loader_threads: int = 1,
     ) -> None:
         super().__init__()
@@ -102,6 +104,7 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
         self.output_type = output_type
         self.area_dir = area_dir
         self.max_sequence_length = max_sequence_length
+        self.image_size = image_size  # Width x Height
         self.perspective_loader_threads = perspective_loader_threads
 
         pano_dir = area_dir / "pano"
@@ -223,7 +226,7 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
         return len(self._rooms)
 
     @staticmethod
-    def _make_item_loader(scene_id: str, rgba_paths: list[Path], depth_paths: list[Path], pose_paths: list[Path]) -> tuple[Callable[[Sequence[int]], SceneSample], Callable[[Sequence[int]], Tensor]]:
+    def _make_item_loader(scene_id: str, rgba_paths: list[Path], depth_paths: list[Path], pose_paths: list[Path], image_size: tuple[int, int]) -> tuple[Callable[[Sequence[int]], SceneSample], Callable[[Sequence[int]], Tensor]]:
         def loader_all(indices: Sequence[int]) -> SceneSample:
             rgba_imgs: list[Tensor] = []
             depth_imgs: list[Tensor] = []
@@ -232,11 +235,13 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
             for i in indices:
                 rgba = read_image(str(rgba_paths[i]))  # [4,H,W] RGBA
                 rgba = rgba.to(torch.float32) / 255.0
+                rgba = resize(rgba, size=list(image_size[::-1]))
                 rgba_imgs.append(rgba)
 
                 depth = read_image(str(depth_paths[i]))  # [1,H,W]
                 # NOTE: Each depth unit is 1/512 meters.
                 depth = depth.to(torch.float32) / 512.0
+                depth = resize(depth, size=[1, *rgba.shape[1:]])
                 depth_imgs.append(depth)
 
                 pose, _ = _load_pose_json(pose_paths[i])
@@ -264,7 +269,8 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
             scene_id,
             [self._rgba_paths[i] for i in view_indices],
             [self._depth_paths[i] for i in view_indices],
-            [self._pose_paths[i] for i in view_indices]
+            [self._pose_paths[i] for i in view_indices],
+            self.image_size,
         )
 
         if self.output_type is SceneSampleLazy:
@@ -299,8 +305,8 @@ class Stanford2D3DAreaDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.da
         scene_id = self._scene_ids[idx]
 
         def _load_view(vi: int) -> tuple[Tensor, Tensor, Tensor, float]:
-            rgba = read_image(str(self._persp_rgba_paths[vi]))
-            depth = read_image(str(self._persp_depth_paths[vi]))
+            rgba = resize(read_image(str(self._persp_rgba_paths[vi])), size=list(self.image_size[::-1]))
+            depth = resize(read_image(str(self._persp_depth_paths[vi])), size=[1, *rgba.shape[1:]])
             pose, focal_length = _load_pose_json(self._persp_pose_paths[vi])
             return (
                 rgba.to(torch.float32) / 255.0,
@@ -339,6 +345,7 @@ class Stanford2d3dDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.I
         output_type: type[T],
         dataset_root: Path,
         max_sequence_length: int | None = None,
+        image_size: tuple[int, int] = (4096, 2048),
         perspective_loader_threads: int = 1,
         area_names: Sequence[str] | None = None,
     ) -> None:
@@ -357,6 +364,7 @@ class Stanford2d3dDataset[T: (SceneSample | SceneSampleLazy)](torch.utils.data.I
                 output_type=output_type,
                 area_dir=area_dir,
                 max_sequence_length=max_sequence_length,
+                image_size=image_size,
                 perspective_loader_threads=perspective_loader_threads,
             )
             for area_dir in area_dirs

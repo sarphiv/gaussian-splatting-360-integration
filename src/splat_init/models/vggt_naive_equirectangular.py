@@ -76,6 +76,42 @@ class VggtNaiveEquirectangular(LightningModule):
         bottom = top + target_height
         return tensor[..., top:bottom, :]
 
+    def _preprocess_rgba_tensor(self, rgba: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
+        """Apply alpha masking, resizing, and cropping to RGBA tensors.
+
+        Accepts tensors shaped ``[..., 4, H, W]`` where leading dimensions capture
+        batch and sequence axes.
+        """
+
+        assert rgba.shape[-3] == 4, "RGBA tensor must contain four channels"
+
+        *leading, _, height, width = rgba.shape
+        leading_shape = tuple(leading)
+        rgba = rgba.to(device=self.device, dtype=th.float32)
+
+        rgb = rgba[..., :3, :, :]
+        alpha = rgba[..., 3:4, :, :]
+        rgb = rgb * alpha
+
+        new_height = self._resize_height(height, width, VGGT_TARGET_SIZE)
+
+        rgb = rgb.reshape(-1, 3, height, width)
+        alpha = alpha.reshape(-1, 1, height, width)
+
+        rgb = F.interpolate(rgb, size=(new_height, VGGT_TARGET_SIZE), mode="bilinear", align_corners=False)
+        alpha = F.interpolate(alpha, size=(new_height, VGGT_TARGET_SIZE), mode="bilinear", align_corners=False)
+
+        rgb = self._center_crop_height(rgb, VGGT_TARGET_SIZE)
+        alpha = self._center_crop_height(alpha, VGGT_TARGET_SIZE)
+
+        rgb = rgb.clamp(0.0, 1.0)
+        alpha = alpha.clamp(0.0, 1.0)
+
+        proc_height, proc_width = rgb.shape[-2:]
+        rgb = rgb.reshape(*leading_shape, 3, proc_height, proc_width)
+        alpha = alpha.reshape(*leading_shape, 1, proc_height, proc_width)
+        return rgb, alpha
+
     def _preprocess_sample(self, sample: SceneSample) -> _ProcessedSample:
         """Apply VGGT's crop/pad preprocessing in-memory to one room sample."""
 
@@ -88,24 +124,16 @@ class VggtNaiveEquirectangular(LightningModule):
         assert rgba.shape[1] == 4, "RGBA tensor must contain four channels"
         assert depth.shape[1] == 1, "Depth tensor must contain a single channel"
 
-        rgb = rgba[:, :3]
-        alpha = rgba[:, 3:4]
+        rgb, alpha = self._preprocess_rgba_tensor(rgba)
 
-        rgb = rgb * alpha
-
-        _, _, height, width = rgb.shape
+        _, _, height, width = depth.shape
         new_height = self._resize_height(height, width, VGGT_TARGET_SIZE)
 
-        rgb = F.interpolate(rgb, size=(new_height, VGGT_TARGET_SIZE), mode="bilinear", align_corners=False)
-        alpha = F.interpolate(alpha, size=(new_height, VGGT_TARGET_SIZE), mode="bilinear", align_corners=False)
+        depth_leading = depth.shape[:-3]
+        depth = depth.reshape(-1, 1, height, width)
         depth = F.interpolate(depth, size=(new_height, VGGT_TARGET_SIZE), mode="bilinear", align_corners=False)
-
-        rgb = self._center_crop_height(rgb, VGGT_TARGET_SIZE)
-        alpha = self._center_crop_height(alpha, VGGT_TARGET_SIZE)
         depth = self._center_crop_height(depth, VGGT_TARGET_SIZE)
-
-        rgb = rgb.clamp(0.0, 1.0)
-        alpha = alpha.clamp(0.0, 1.0)
+        depth = depth.reshape(*depth_leading, 1, depth.shape[-2], depth.shape[-1])
 
         return _ProcessedSample(rgb=rgb, depth=depth, alpha=alpha, pose=pose)
 
@@ -135,11 +163,28 @@ class VggtNaiveEquirectangular(LightningModule):
     # Core logic
     # ------------------------------------------------------------------
 
+    def _prepare_forward_inputs(self, images: th.Tensor) -> th.Tensor:
+        """Normalize raw RGBA batches to the format expected by VGGT."""
+
+        assert images.dim() == 5, "Expected [B, S, C, H, W] input"
+        _, _, channels, height, width = images.shape
+        assert channels in (3, 4), "Input must have three (RGB) or four (RGBA) channels"
+
+        if channels == 4:
+            rgb, _ = self._preprocess_rgba_tensor(images)
+        else:
+            assert height == VGGT_TARGET_SIZE and width == VGGT_TARGET_SIZE, "RGB inputs must already be preprocessed"
+            rgb = images.to(device=self.device, dtype=th.float32).clamp(0.0, 1.0)
+
+        return rgb
+
     def forward(self, images: th.Tensor) -> tuple[th.Tensor, th.Tensor, dict[str, th.Tensor]]:
         """Forward pass returning pose matrices and depth predictions."""
 
-        preds = self.model(images)
-        pose_enc, depth_pred = self._gather_predictions(preds, images.shape[1])
+        rgb_inputs = self._prepare_forward_inputs(images).to(self.dtype)
+
+        preds = self.model(rgb_inputs)
+        pose_enc, depth_pred = self._gather_predictions(preds)
         pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
 
         return pose_mats_pred, depth_pred, {}
@@ -153,13 +198,12 @@ class VggtNaiveEquirectangular(LightningModule):
 
     def _gather_predictions(
         self,
-        preds: dict[str, th.Tensor],
-        num_views: int,
+        preds: dict[str, th.Tensor]
     ) -> tuple[th.Tensor, th.Tensor]:
         """Slice VGGT outputs to match the number of views."""
 
-        pose = preds["pose_enc"][0, :num_views]  # [V, 9]
-        depth = preds["depth"][0, :num_views].squeeze(-1).unsqueeze(1)  # [V, 1, H, W]
+        pose = preds["pose_enc"]  # [B, S, 9]
+        depth = preds["depth"].squeeze(-1).unsqueeze(2)  # [B, S, 1, H, W]
         return pose, depth
 
     def _pose_matrices_from_encoding(self, pose: th.Tensor) -> th.Tensor:

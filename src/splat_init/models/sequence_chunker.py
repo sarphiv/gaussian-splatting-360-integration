@@ -34,7 +34,7 @@ class SequenceChunker(LightningModule):
 
         pose_pred = th.zeros((len(scene), 4, 4), device=self.device, dtype=th.float32)
 
-        iterator = tqdm(zip(idx_chunks, idx_overlap), desc="Processing chunks", leave=False, disable=not self.verbose)
+        iterator = tqdm(zip(idx_chunks, idx_overlap), desc="Processing chunks", total=len(idx_chunks), leave=False, disable=not self.verbose)
         for chunk_range, overlap_range in iterator:
             chunk_sample = self._slice_sample(scene, chunk_range)
             images = chunk_sample.rgba.to(device=self.device).unsqueeze(0)

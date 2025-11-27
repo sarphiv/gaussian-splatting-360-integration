@@ -44,8 +44,9 @@ def _end_metrics(
     pose_pred: th.Tensor,
     sequence_length: int,
     stride: int,
-) -> dict[str, th.Tensor]:
-    """Compute pose errors plus runtime and memory metrics for one scene."""
+    model_name: str,
+) -> dict[str, th.Tensor | str]:
+    """Compute pose errors plus runtime, memory, and metadata for one scene."""
 
     gt_rot_rel = relative_rotations(pose_gt)
     pred_rot_rel = relative_rotations(pose_pred)
@@ -78,6 +79,7 @@ def _end_metrics(
         "gpu_memory_allocated": th.tensor(gpu_alloc, dtype=th.int64),
         "gpu_memory_peak": th.tensor(gpu_peak, dtype=th.int64),
         "cpu_memory_rss": th.tensor(cpu_rss_bytes, dtype=th.int64),
+        "model_name": model_name,
     }
 
 
@@ -86,6 +88,7 @@ def _build_dataset(args: Args) -> ThreeSixtyLocDataset[SceneSampleLazy] | Stanfo
         return Stanford2d3dDataset(
             SceneSampleLazy,
             args.data.dataset_dir,
+            image_size=args.data.dataset_image_size,
             perspective_loader_threads=args.data.dataloader_workers
         )
     elif args.data.dataset_name == "360_loc":
@@ -94,6 +97,7 @@ def _build_dataset(args: Args) -> ThreeSixtyLocDataset[SceneSampleLazy] | Stanfo
             args.data.dataset_dir,
             stride=args.data.dataset_stride,
             depth_required=False,
+            image_size=args.data.dataset_image_size,
             worker_count=args.data.dataloader_workers
         )
     else:
@@ -123,15 +127,20 @@ def main() -> None:
     L.seed_everything(args.seed)
 
     dataset = _build_dataset(args)
-    model = _build_model(args).to(device="cuda" if th.cuda.is_available() else "cpu", dtype=th.bfloat16)
 
-    for scene in tqdm(dataset, desc="Evaluating scenes"):
+    dtype = th.bfloat16 if args.model.dtype == "bfloat16" else th.float32
+    device = "cuda" if th.cuda.is_available() else "cpu"
+    model = _build_model(args).to(device=device, dtype=dtype)
+
+    for scene in (pbar := tqdm(dataset, desc="Evaluating scenes")):
         # Metrics start
+        pbar.set_postfix({"scene_id": scene.id})
         metrics_runtime = _start_metrics()
 
         # Inference
-        poses, _, _ = model.forward([scene])
-        poses_cpu = poses.detach().cpu()
+        with th.no_grad(), th.inference_mode():
+            poses, _, _ = model.forward([scene])
+            poses_cpu = poses.detach().cpu()
 
         # Metrics end
         metrics = _end_metrics(
@@ -140,6 +149,7 @@ def main() -> None:
             pose_pred=poses_cpu,
             sequence_length=len(scene),
             stride=args.data.dataset_stride,
+            model_name=args.model.model,
         )
 
         # Store

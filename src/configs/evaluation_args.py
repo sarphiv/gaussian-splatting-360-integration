@@ -6,17 +6,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
-from lightning.fabric.plugins.precision.precision import (
-    _PRECISION_INPUT_STR as PRECISION_INPUT_STR,
-)
-
 
 @dataclass(frozen=True)
 class ModelArgs:
     model: Literal["vggt_naive_equirectangular", "vggt_perspective_transform"] = "vggt_naive_equirectangular"
+    dtype: Literal["float32", "bfloat16"] = "float32"
 
-    chunker_chunk_size: int = 8
-    chunker_chunk_overlap: int = 4
+    chunker_chunk_size: int = 16
+    chunker_chunk_overlap: int = 6
 
 
 @dataclass(frozen=True)
@@ -26,6 +23,7 @@ class DataArgs:
     dataset_name: Literal["stanford_2d_3d", "360_loc"] = "360_loc"
     dataset_dir: Path = Path(environ.get("DATASET_360_LOC_ROOT", ""))
     dataset_stride: int = 8
+    dataset_image_size: tuple[int, int] = (1538, 768) # Width x Height
 
 
 @dataclass(frozen=True)
