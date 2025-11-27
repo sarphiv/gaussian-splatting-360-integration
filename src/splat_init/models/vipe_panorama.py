@@ -172,7 +172,7 @@ class VipePanorama(LightningModule):
         processor = TrackAnythingProcessor(
             self.init_cfg.instance.phrases,
             add_sky=self.init_cfg.instance.add_sky,
-            sam_run_gap=int(video_stream.fps() * self.init_cfg.instance.kf_gap_sec),
+            sam_run_gap=int(max(video_stream.fps() * self.init_cfg.instance.kf_gap_sec, 1)),
         )
         return ProcessedVideoStream(video_stream, [processor])
 

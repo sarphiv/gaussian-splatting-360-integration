@@ -15,8 +15,8 @@ def _orthonormal_vector(vec: th.Tensor, eps: float = 1e-8) -> th.Tensor:
     basis_x = th.tensor((1.0, 0.0, 0.0), device=vec.device, dtype=vec.dtype).expand_as(vec)
     basis_y = th.tensor((0.0, 1.0, 0.0), device=vec.device, dtype=vec.dtype).expand_as(vec)
 
-    cross_x = th.cross(vec, basis_x)
-    cross_y = th.cross(vec, basis_y)
+    cross_x = th.cross(vec, basis_x, dim=-1)
+    cross_y = th.cross(vec, basis_y, dim=-1)
 
     use_x = cross_x.norm(dim=-1, keepdim=True) >= cross_y.norm(dim=-1, keepdim=True)
     ortho = th.where(use_x, cross_x, cross_y)
@@ -30,7 +30,7 @@ def _rotate_vectors(vectors: th.Tensor, axes: th.Tensor, angles: th.Tensor) -> t
     sin_theta = th.sin(angles)
     cos_theta = th.cos(angles)
 
-    cross_term = th.cross(axes, vectors)
+    cross_term = th.cross(axes, vectors, dim=-1)
     dot_term = (axes * vectors).sum(dim=-1, keepdim=True)
 
     return vectors * cos_theta + cross_term * sin_theta + axes * dot_term * (1.0 - cos_theta)
@@ -114,7 +114,7 @@ def pointing_and_roll_errors(gt_rot: th.Tensor, pred_rot: th.Tensor) -> tuple[th
 
     pointing_error = th.acos(th.clamp((f_gt * f_pred).sum(dim=-1), -1.0, 1.0))
 
-    raw_axis = th.cross(f_pred, f_gt)
+    raw_axis = th.cross(f_pred, f_gt, dim=-1)
     axis_norm = raw_axis.norm(dim=-1, keepdim=True)
     unit_axis = th.where(axis_norm > 1e-8, raw_axis / axis_norm, _orthonormal_vector(f_gt))
 

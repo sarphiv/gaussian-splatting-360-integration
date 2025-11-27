@@ -7,15 +7,15 @@ import rerun as rr
 import rerun.blueprint as rrb
 import torch as th
 import numpy as np
-from loguru import logger
 
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset, SceneSample
-from utilities.pose import mean_rotation_karcher, procrustes_analysis
+from utilities.pose import procrustes_transform
 
 
 # PRED_PATH = Path("outputs/2025-11-27T03:39:14") # VGGT Perspective barely works
-# PRED_PATH = Path("outputs/2025-11-27T05:34:31") # ViPE
-PRED_PATH = Path("outputs/2025-11-27T04:23:25")
+# PRED_PATH = Path("outputs/2025-11-27T04:23:25")
+PRED_PATH = Path("outputs/2025-11-27T05:34:31") # ViPE 4
+# PRED_PATH = Path("outputs/2025-11-27T07:26:26") # VGGT Perspective 8
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
@@ -38,13 +38,13 @@ COLOR_ERROR = [1.0, 0.0, 0.0]
 pred_scene_path = sorted(p for p in PRED_PATH.iterdir() if p.is_dir())[PRED_IDX]
 pred_metrics: dict[str, str | float | int] = th.load(pred_scene_path / "metrics.pt", map_location="cpu")
 scene_idx = int(pred_metrics["scene_idx"])
-pred_poses = cast(th.Tensor, th.load(pred_scene_path / "model_output.pt", map_location="cpu")["poses"]).inverse()
+pred_poses_w2c = cast(th.Tensor, th.load(pred_scene_path / "model_output.pt", map_location="cpu")["poses"])
 
 # NOTE: Depth is required, so many scenes are filtered out
 dataset_reconstruct = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=RECONSTRUCT_STRIDE, worker_count=DATASET_WORKERS)
 dataset_validation = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=cast(int, pred_metrics["dataset_stride"]), worker_count=DATASET_WORKERS)
 sample_reconstruct = dataset_reconstruct[scene_idx]
-sample_validation_poses = dataset_validation.load_poses(scene_idx).inverse()
+gt_poses_w2c = dataset_validation.load_poses(scene_idx)
 
 
 # Setup rerun
@@ -105,21 +105,24 @@ for seq_idx in range(len(sample_reconstruct.pose)):
     # rr.log(f"world/env/{seq_idx}/image/rgb", rr.Image(cv2.resize(rgb, dsize=EQUIRECT_SHAPE, interpolation=cv2.INTER_LINEAR), color_model=rr.ColorModel.RGBA)) # type: ignore[reportArgumentType]
     rr.log(f"world/env/{seq_idx}/points", rr.Points3D(points, colors=colors))
 
+sequence_len = min(len(pred_poses_w2c), len(gt_poses_w2c))
+pred_poses_w2c = pred_poses_w2c[:sequence_len]
+gt_poses_w2c = gt_poses_w2c[:sequence_len]
 
-
-procrustes_align = procrustes_analysis(pred_poses[:, :3, 3], sample_validation_poses[:len(pred_poses), :3, 3])
+pred_aligned_w2c = procrustes_transform(
+    pred_poses_w2c,
+    gt_poses_w2c,
+    pred_poses_w2c,
+    allow_scale=True,
+)
+pred_aligned_c2w = pred_aligned_w2c.inverse()
+gt_poses_c2w = gt_poses_w2c.inverse()
 
 pos_gt_prev = None
 pos_pred_prev = None
-# NOTE: Used to correct for constant rotation offset in predictions
-rot_delta = mean_rotation_karcher(
-    sample_validation_poses[:len(pred_poses), :3, :3] @ procrustes_align(pred_poses[:, :3, 3], pred_poses[:, :3, :3])[1].inverse()
-)
 
-for seq_idx in range(len(pred_poses)):
-    # Get ground truth pose
-    # pose_gt = sample_gt.pose[seq_idx].inverse()
-    pose_gt = sample_validation_poses[seq_idx]
+for seq_idx in range(sequence_len):
+    pose_gt = gt_poses_c2w[seq_idx]
     pos_gt, rot_gt = pose_gt[:3, 3], pose_gt[:3, :3]
     # rgb = sample_gt.rgba[seq_idx].permute(1, 2, 0).numpy()
     # rgb = dataset_full.load_rgba(SCENE_IDX, seq_idx).permute(1, 2, 0).numpy()
@@ -137,10 +140,8 @@ for seq_idx in range(len(pred_poses)):
 
 
 #     # Log main prediction
-    pose_main = pred_poses[seq_idx]
+    pose_main = pred_aligned_c2w[seq_idx]
     pos_main, rot_main = pose_main[:3, 3], pose_main[:3, :3]
-    pos_main, rot_main = procrustes_align(pos_main, rot_main)
-    rot_main = rot_delta @ rot_main
     pos_error = th.linalg.norm(pos_gt - pos_main).item()
 #     pos_error_total += pos_error
 
