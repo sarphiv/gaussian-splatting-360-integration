@@ -150,7 +150,7 @@ class VggtPerspectiveTransform(LightningModule):
     def _mean_rotation_markley(self, quat: th.Tensor) -> th.Tensor:
         # Rotate face to canonical orientation
         quat = mat_to_quat_xyzw(
-            quat_to_mat_xyzw(quat) @ self._face_rots.permute(0, 2, 1)[None, ...].to(quat)
+            self._face_rots[None, ...].to(quat) @ quat_to_mat_xyzw(quat)
         )
         weights = (self.face_weights / self.face_weights.sum()).to(quat)
         dominant = mean_quaternion_markley(quat, weights=weights)
