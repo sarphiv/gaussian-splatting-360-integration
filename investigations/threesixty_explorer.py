@@ -14,8 +14,9 @@ from utilities.pose import procrustes_transform
 
 # PRED_PATH = Path("outputs/2025-11-27T03:39:14") # VGGT Perspective barely works
 # PRED_PATH = Path("outputs/2025-11-27T04:23:25")
-PRED_PATH = Path("outputs/2025-11-27T05:34:31") # ViPE 4
-# PRED_PATH = Path("outputs/2025-11-27T07:26:26") # VGGT Perspective 8
+# PRED_PATH = Path("outputs/2025-11-27T05:34:31") # ViPE 4
+PRED_PATH = Path("outputs/2025-11-27T07:26:26") # VGGT Perspective 8
+# PRED_PATH = Path("outputs/2025-11-27T06:59:04")
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
@@ -139,11 +140,10 @@ for seq_idx in range(sequence_len):
     pos_gt_prev = pos_gt
 
 
-#     # Log main prediction
+    # Log main prediction
     pose_main = pred_aligned_c2w[seq_idx]
     pos_main, rot_main = pose_main[:3, 3], pose_main[:3, :3]
     pos_error = th.linalg.norm(pos_gt - pos_main).item()
-#     pos_error_total += pos_error
 
     rr.log(f"world/pred/main/{seq_idx}", rr.Transform3D(translation=pos_main, mat3x3=rot_main))
     rr.log(f"world/pred/main/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_PRED, radii=SIZE_PRED))
