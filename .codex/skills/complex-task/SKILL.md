@@ -1,56 +1,55 @@
 ---
 name: complex-task
-description: Guide for how to solve complicated tasks in a structured way while avoiding the introduction of issues in the code. This skill is useful when correctness is absolutely critical for subsequent work; the task's complexity has an associated high risk of introducing issues; or if the path to a good solution is unclear.
-metadata:
-  short-description: Solve complicated tasks
+description: Orchestrate complex, high-risk, or ambiguous tasks by splitting work across orchestrator, implementer, and reviewer roles with explicit planning, parallel subtasks, and structured review. Use when correctness is critical, scope is large, or the path to a good solution is unclear.
 ---
 
 # Complex task
-A complex task is solved through the collaboration of three distinct agent types:
-1. Orchestrator
-2. Implementer
-3. Reviewer
+Solve complex tasks through three distinct roles: orchestrator, implementer, and reviewer. Only the orchestrator reads this file, so implementer and reviewer workflows must be encoded in their plan documents. Implementers and reviewers do not communicate with the orchestrator.
 
 ## Orchestrator
-Explores the codebase, sketches the plan, and refines the plan.
-If this skill was invoked in the current session, then this session's agent is the orchestrator.
+Explore the codebase, create subtasks, and refine subtasks. If this skill is invoked in the current session, act as the orchestrator.
 
-### Workflow
+### Workflow (orchestrator actions)
 1. Collect relevant information.
-  - Search and look for relevant code.
-  - Explore references and dependencies found.
-  - Investigate assumptions through experimentation.
-2. Create the plans for each subtask.
-  - Split up the task into parallel units of work - i.e. subtasks.
-  - Create a `tasks/{task-name}/{subtask-name}.md` file. Use `plan.md` as a template.
+  - Search for relevant code and data.
+  - Read references and dependencies as needed.
+  - Validate assumptions through small experiments.
+2. Create plans for each subtask.
+  - Split the work into parallel, low-conflict subtasks.
+  - Create `tasks/{task-name}/{subtask-name}.md` by copying `assets/subtask.md`.
   - Include all relevant subtask information so an implementer can reduce exploratory work.
-3. Refine the plans.
-  - The human will verify untestable assumptions and answer questions for each subtask.
-  - Update the subtask plans given the new information.
-  - Create a `tasks/{task-name}/review.md` file. Use `review.md` as a template.
+3. Refine the subtasks.
+  - Ask the human to verify untestable assumptions and answer open questions.
+  - Update subtask plans with new information.
+  - Create `tasks/{task-name}/review.md` by copying `assets/review.md`.
 
 ### Notes
-- Subtasks are implemented in parallel by multiple independent implementers. Minimize risk of conflict between implementers.
-- A subtask must be appropriately sized for one implementer agent to solve independently and efficiently.
-- The subtask must be detailed enough for an implementer agent to never consider invoking this skill again.
-- No changes to the code. The orchestrator only gathers information, tests assumptions, and creates plans.
-- Do not read other tasks in `tasks/`
+- Minimize conflicts by isolating files or components per subtask.
+- Provide enough detail so implementers do not need to invoke this skill again.
+- Do not implement or review code. Only gather information and create subtasks.
+- Do not read other task directories in `tasks/`.
+
 
 ## Implementer
-Implements a subtask planned by the orchestrator.
+Implement a single subtask planned by the orchestrator.
 
-### Workflow
+### Encode in subtask
+- Explicit steps and file boundaries.
+- Constraints and assumptions that must be honored.
+- Expected behavior and non-goals.
+- Inputs, outputs, and format or API contracts.
+- Data or config dependencies (datasets, checkpoints, env flags).
+- Tests or checks to run.
+- Validation signals to inspect (logs, metrics, tolerances).
 
-### Notes
-- Multiple instances
 
 ## Reviewer
+Review completed work using the review checklist.
 
-### Workflow
-
-### Notes
-- Multiple instances
-
-
-
-
+### Encode in review checklist
+- Requirements and completion criteria.
+- Verification steps and tests to run.
+- Known risk areas or edge cases to re-check.
+- Metrics or performance gates that must hold.
+- Scope assertions (what must remain unchanged).
+- Artifacts or outputs to inspect.

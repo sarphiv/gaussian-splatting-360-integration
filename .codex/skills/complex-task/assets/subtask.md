@@ -7,7 +7,7 @@ What is the purpose of this agent?
 -- Lines beginning with `--` or `#` may not be modified.
 -- The steps are also a log so all changes must be present.
 -- Steps are written as nested verb-first to-do lists of actions.
--- Update the steps, then execute, then review. Repeat this until completion.
+-- Update the steps, execute, review. Repeat this until completion.
 
 
 ## Scope
@@ -48,7 +48,3 @@ What is the purpose of this agent?
 1. Question 1
 2. Question 2
 3. ...
-
-
-# Output
-Fill this out after full completion of the plan to communicate with either the human or other agents.
