@@ -63,7 +63,7 @@ RUN --mount=target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,type=cache,sharing=l
     --mount=source=src,target=src,type=bind \
     sudo chown ubuntu:ubuntu /home/ubuntu/.cache && \
     sudo chown -R ubuntu:ubuntu vendor && \
-    uv sync --locked && \
+    uv sync --frozen && \
     vipe --version
 
 RUN sudo chown -R ubuntu:ubuntu /home/ubuntu/.cache

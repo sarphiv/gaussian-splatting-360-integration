@@ -2470,7 +2470,7 @@ requires-dist = [
     { name = "torchvision", specifier = ">=0.23.0" },
     { name = "tqdm", specifier = ">=4.67.1" },
     { name = "tyro", specifier = ">=0.9.31" },
-    { name = "vggt", git = "https://github.com/facebookresearch/vggt.git?rev=e56963328b7476e615ce8dda9164d381f8dc07a3" },
+    { name = "vggt", editable = "vendor/vggt" },
     { name = "vipe", editable = "vendor/vipe" },
     { name = "wandb", specifier = ">=0.21.3" },
 ]
@@ -2803,7 +2803,7 @@ wheels = [
 [[package]]
 name = "vggt"
 version = "0.0.1"
-source = { git = "https://github.com/facebookresearch/vggt.git?rev=e56963328b7476e615ce8dda9164d381f8dc07a3#e56963328b7476e615ce8dda9164d381f8dc07a3" }
+source = { editable = "vendor/vggt" }
 dependencies = [
     { name = "einops" },
     { name = "huggingface-hub" },
@@ -2812,6 +2812,28 @@ dependencies = [
     { name = "pillow" },
     { name = "safetensors" },
 ]
+
+[package.metadata]
+requires-dist = [
+    { name = "einops" },
+    { name = "gradio", marker = "extra == 'demo'", specifier = "==5.17.1" },
+    { name = "huggingface-hub" },
+    { name = "hydra-core", marker = "extra == 'demo'" },
+    { name = "matplotlib", marker = "extra == 'demo'" },
+    { name = "numpy", specifier = "<2" },
+    { name = "omegaconf", marker = "extra == 'demo'" },
+    { name = "onnxruntime", marker = "extra == 'demo'" },
+    { name = "opencv-python" },
+    { name = "opencv-python", marker = "extra == 'demo'" },
+    { name = "pillow" },
+    { name = "requests", marker = "extra == 'demo'" },
+    { name = "safetensors" },
+    { name = "scipy", marker = "extra == 'demo'" },
+    { name = "tqdm", marker = "extra == 'demo'" },
+    { name = "trimesh", marker = "extra == 'demo'" },
+    { name = "viser", marker = "extra == 'demo'", specifier = "==0.2.23" },
+]
+provides-extras = ["demo"]
 
 [[package]]
 name = "vhacdx"

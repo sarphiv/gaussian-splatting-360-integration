@@ -2,3 +2,6 @@
 	path = vendor/vipe
 	url = https://github.com/nv-tlabs/vipe
 	branch = panorama
+[submodule "vendor/vggt"]
+	path = vendor/vggt
+	url = https://github.com/facebookresearch/vggt.git
