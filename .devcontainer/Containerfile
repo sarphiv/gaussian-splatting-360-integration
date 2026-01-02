@@ -3,6 +3,7 @@ FROM nvidia/cuda:12.8.0-devel-ubuntu24.04
 
 RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    --mount=source=.python-version,target=.python-version,type=bind \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     DEBIAN_FRONTEND=noninteractive apt-get update -y && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -11,12 +12,14 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     wget \
     ripgrep \
     nvtop \
+    python$(cat .python-version)-dev \
     ffmpeg \
     libsm6 \
     libxext6 \
     '^libxcb.*-dev' \
     libx11-xcb-dev \
     libglu1-mesa-dev \
+    libgl1 \
     libxrender-dev \
     libxi-dev \
     libxkbcommon-dev \
@@ -64,6 +67,6 @@ RUN --mount=target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,type=cache,sharing=l
     sudo chown ubuntu:ubuntu /home/ubuntu/.cache && \
     sudo chown -R ubuntu:ubuntu vendor && \
     uv sync --frozen && \
-    vipe --version
+    uv run vipe --version # Trigger build of everything and ViPE custom build
 
 RUN sudo chown -R ubuntu:ubuntu /home/ubuntu/.cache
