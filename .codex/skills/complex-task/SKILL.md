@@ -19,12 +19,13 @@ Explore the codebase, create subtasks, and refine subtasks. If this skill is inv
   - Create `tasks/{task-name}/{subtask-name}.md` by copying `assets/subtask.md`.
   - Include all relevant subtask information so an implementer can reduce exploratory work.
 3. Refine the subtasks.
-  - Ask the human to verify untestable assumptions and answer open questions.
+  - List all untestable assumptions and open questions for the human to process.
   - Update subtask plans with new information.
   - Create `tasks/{task-name}/review.md` by copying `assets/review.md`.
 
 ### Notes
 - Minimize conflicts by isolating files or components per subtask.
+- Detail API compatibility between subtasks via function signatures, class names, etc.
 - Provide enough detail so implementers do not need to invoke this skill again.
 - Do not implement or review code. Only gather information and create subtasks.
 - Do not read other task directories in `tasks/`.

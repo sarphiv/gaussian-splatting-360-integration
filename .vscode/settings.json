@@ -4,5 +4,6 @@
         "${workspaceFolder}/src",
         "${workspaceFolder}/vendor/vipe"
     ],
-    "debugpy.debugJustMyCode": false
+    "debugpy.debugJustMyCode": false,
+    "chatgpt.commentCodeLensEnabled": false
 }
