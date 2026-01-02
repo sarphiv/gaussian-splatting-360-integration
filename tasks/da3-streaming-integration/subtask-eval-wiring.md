@@ -25,13 +25,13 @@ Wire the new DA3-Streaming panorama model into the evaluation CLI, including arg
     - [x] Inspect `evaluate.py` to see how models are instantiated and used.
     - [x] Inspect `evaluation_args.py` for model choice and chunker defaults.
     - [x] Describe a small experiment: run evaluation with an existing model to ensure the new wiring does not break current paths.
-- [ ] Formulate overall approach to solve the task.
-    - [ ] Add the DA3 model name `depth_anything_3_streaming` to `ModelArgs.model` Literal and update defaults/comments if needed.
-    - [ ] Import `DepthAnything3Streaming` in `evaluate.py` and extend `_build_model` to handle it.
-        - [ ] Always wrap with `SequenceChunker(model=da3_model, ...)` for memory control and long sequences.
-    - [ ] Keep changes minimal and avoid altering evaluation metrics.
-- [ ] Append to the plan.
-    - [ ] Update the plan if the DA3 model requires new CLI arguments (e.g., face size or FoV) to be exposed.
+- [x] Formulate overall approach to solve the task.
+    - [x] Add the DA3 model name `da3_perspective_transform` to `ModelArgs.model` Literal and update defaults/comments if needed.
+    - [x] Import `Da3PerspectiveTransform` in `evaluate.py` and extend `_build_model` to handle it.
+        - [x] Always wrap with `SequenceChunker(model=da3_model, ...)` for memory control and long sequences.
+    - [x] Keep changes minimal and avoid altering evaluation metrics.
+- [x] Append to the plan.
+    - [x] Confirm no additional DA3 CLI arguments are needed for evaluation wiring.
 
 
 # Assumptions

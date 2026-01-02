@@ -11,6 +11,7 @@ from tqdm import tqdm
 from splat_init.data.datamodule_360 import SceneSampleLazy
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset
 from splat_init.data.stanford_2d_3d import Stanford2d3dDataset
+from splat_init.models.da3_perspective_transform import Da3PerspectiveTransform
 from splat_init.models.sequence_chunker import SequenceChunker
 from splat_init.models.vggt_perspective_transform import VggtPerspectiveTransform
 from splat_init.models.vggt_naive_equirectangular import VggtNaiveEquirectangular
@@ -121,6 +122,7 @@ def _build_model(args: Args) -> SequenceChunker:
         "vggt_perspective_transform": VggtPerspectiveTransform,
         "vggt_naive_equirectangular": VggtNaiveEquirectangular,
         "vipe_panorama": lambda: VipePanorama(fps=args.data.dataset_fps),
+        "da3_perspective_transform": Da3PerspectiveTransform,
     }
 
     return SequenceChunker(

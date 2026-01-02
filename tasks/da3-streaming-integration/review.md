@@ -24,9 +24,9 @@ Review the DA3-Streaming integration: asset management, projection + pose merge 
 - [ ] DA3 config copy exists at `src/configs/depth_anything_3.yaml` with null weight paths.
 - [ ] Forward path writes images to a temp dir (RAM-backed when available) and cleans output dirs after parsing.
 - [ ] Pose merging pre-rotates faces to canonical orientation before averaging; output is w2c and matches evaluation format.
-- [ ] Face FoV overlap is 25% per side (≈135° per face) and face size aligns with DA3 `process_res=504`.
+- [ ] Face size aligns with DA3 `process_res=504`.
 - [ ] Evaluation can select the new model without breaking existing models.
-- [ ] Evaluation uses `SequenceChunker` for `depth_anything_3_streaming`.
+- [ ] Evaluation uses `SequenceChunker` for `da3_perspective_transform`.
 - [ ] Metrics or performance gates: no excessive disk usage in the repo; temp outputs removed.
 - [ ] Scope assertions (must remain unchanged): existing VGGT/ViPE model code paths and dataset loaders.
 
@@ -34,7 +34,7 @@ Review the DA3-Streaming integration: asset management, projection + pose merge 
 ## Verification
 - [ ] Manual check: confirm camera_poses parsing (c2w -> w2c) and face pre-rotation math with a synthetic identity-case test.
 - [ ] Test: run `src/splat_init/evaluate.py` with an existing model to verify no regressions.
-- [ ] Edge case or risk area: ensure `/dev/shm` unavailable path falls back cleanly to standard temp dir.
+- [ ] Edge case or risk area: ensure `temporary_storage_in_ram=True` asserts when `/dev/shm` is unavailable.
 - [ ] Artifact or output inspection: verify temp output dirs are deleted after run (no new files in workspace).
 
 
