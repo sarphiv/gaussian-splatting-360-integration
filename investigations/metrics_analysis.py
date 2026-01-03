@@ -32,6 +32,7 @@ PRED_PATHS: list[Path] = [Path(p) for p in [
     "../outputs/2025-11-27T06:59:04",  # VGGT Perspective, dataset stride 4
     "../outputs/2025-11-27T07:26:26",  # VGGT Perspective, dataset stride 8
     "../outputs/2025-11-27T07:36:05",  # VGGT Perspective, dataset stride 16
+    "../outputs/2026-01-02T23:43:28",  # DA3 Perspective, dataset stride 8
 ]]
 
 

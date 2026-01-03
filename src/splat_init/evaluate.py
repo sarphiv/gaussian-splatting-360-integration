@@ -127,8 +127,7 @@ def _build_model(args: Args) -> SequenceChunker:
 
     return SequenceChunker(
         model=models[args.model.model](),
-        chunk_size=args.model.chunker_chunk_size,
-        chunk_overlap=args.model.chunker_chunk_overlap,
+        chunking=args.model.chunker,
         verbose=True,
     )
 
@@ -158,6 +157,7 @@ def main() -> None:
             poses_cpu = poses.detach().cpu()
 
         # Metrics end
+        chunker_chunk_size, chunker_chunk_overlap = args.model.chunker or (0, 0)
         metrics = _end_metrics(
             metrics_runtime,
             pose_gt=scene.poses[:],
@@ -166,8 +166,8 @@ def main() -> None:
             sequence_length=len(scene),
             dataset_stride=args.data.dataset_stride,
             dataset_fps=args.data.dataset_fps,
-            chunker_chunk_size=args.model.chunker_chunk_size,
-            chunker_chunk_overlap=args.model.chunker_chunk_overlap,
+            chunker_chunk_size=chunker_chunk_size,
+            chunker_chunk_overlap=chunker_chunk_overlap,
             model_name=args.model.model,
         )
 

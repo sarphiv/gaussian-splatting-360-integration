@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-from typing import Tuple
-from pathlib import Path
-
 import torch as th
 from lightning.pytorch import LightningModule
 from tqdm import tqdm
@@ -15,20 +12,26 @@ from utilities.pose import (
 
 
 class SequenceChunker(LightningModule):
-    """Run a sequence model in overlapping chunks and merge the outputs."""
+    """Run a sequence model in overlapping chunks and merge the outputs when enabled."""
 
-    def __init__(self, model: th.nn.Module, chunk_size: int, chunk_overlap: int, verbose: bool) -> None:
+    def __init__(self, model: th.nn.Module, chunking: tuple[int, int] | None, verbose: bool) -> None:
+        """Wrap a sequence model with optional chunked processing."""
         super().__init__()
         self.model = model
-        self.chunk_size = chunk_size
-        self.chunk_overlap = chunk_overlap
+        self.chunking = chunking
+        self.chunk_size, self.chunk_overlap = chunking or (0, 0)
         self.verbose = verbose
 
-    def forward(self, sample: list[SceneSample] | list[SceneSampleLazy]) -> Tuple[th.Tensor, None, dict[str, th.Tensor]]:
+    def forward(self, sample: list[SceneSample] | list[SceneSampleLazy]) -> tuple[th.Tensor, None, dict[str, th.Tensor]]:
         """Chunk a long sequence, align overlapping pose predictions, and fuse them."""
 
         assert len(sample) == 1, "Batch size greater than 1 not supported"
         scene = sample[0]
+
+        if self.chunking is None:
+            images = self._slice_sample(scene, range(len(scene))).rgba.to(device=self.device).unsqueeze(0)
+            pose_pred, _, _ = self.model.forward(images)
+            return pose_pred[0], None, {}
 
         idx_chunks, idx_overlap = self._chunk_ranges(len(scene), self.chunk_size, self.chunk_overlap)
 

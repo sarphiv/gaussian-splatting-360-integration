@@ -14,18 +14,18 @@ class ModelArgs:
         "vggt_perspective_transform",
         "vipe_panorama",
         "da3_perspective_transform",
-    ] = "vipe_panorama"
+    ] = "da3_perspective_transform"
     dtype: Literal["float32", "bfloat16"] = "float32"
 
-    chunker_chunk_size: int = 16  # Naive: 40, Persp: 7, ViPE: 16, DA3: tune
-    chunker_chunk_overlap: int = 6  # Naive: 15, Persp: 4, ViPE: 6, DA3: tune
+    # Naive: (40, 15), Persp: (7, 4), ViPE: (16, 6), DA3: None
+    chunker: tuple[int, int] | None = None  # (size, overlap)
 
 
 @dataclass(frozen=True)
 class DataArgs:
     dataset_name: Literal["stanford_2d_3d", "360_loc"] = "360_loc"
     dataset_dir: Path = Path(environ.get("DATASET_360_LOC_ROOT", ""))
-    dataset_stride: int = 8
+    dataset_stride: int = 1
     dataset_fps: float = 2 / dataset_stride
     dataset_image_size: tuple[int, int] = (1538, 768) # Width x Height
 

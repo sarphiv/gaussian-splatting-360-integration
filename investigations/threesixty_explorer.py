@@ -15,7 +15,8 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2025-11-27T03:39:14") # VGGT Perspective barely works
 # PRED_PATH = Path("outputs/2025-11-27T04:23:25")
 # PRED_PATH = Path("outputs/2025-11-27T05:34:31") # ViPE 4
-PRED_PATH = Path("outputs/2025-11-27T07:26:26") # VGGT Perspective 8
+# PRED_PATH = Path("outputs/2025-11-27T07:26:26") # VGGT Perspective 8
+PRED_PATH = Path("outputs/2026-01-02T23:43:28") # DA3 Perspective 8
 # PRED_PATH = Path("outputs/2025-11-27T06:59:04")
 PRED_IDX = 0
 
