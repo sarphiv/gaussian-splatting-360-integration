@@ -16,7 +16,6 @@ dependencies = [
     "lightning>=2.5.5",
     "loguru>=0.7.3",
     "matplotlib>=3.10.6",
-    "pyqt6>=6.9.1",
     "rerun-sdk>=0.23.1",
     "torch>=2.8.0",
     "torchvision>=0.23.0",
@@ -26,10 +25,11 @@ dependencies = [
     "vipe",
     "depth-anything-3",
     "wandb>=0.21.3",
+    "pyqt5>=5.15.11",
 ]
 
 [project.scripts]
-splat-init = "splat_init:main"
+pose-evaluate = "splat_init:evaluate"
 
 [build-system]
 requires = ["uv_build>=0.8.8,<0.9.0"]

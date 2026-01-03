@@ -9,7 +9,7 @@ optional depth projection derived from the reconstructed SLAM map.
 
 from __future__ import annotations
 
-from typing import Iterator
+from typing import Iterator, cast
 
 import hydra
 import numpy as np
@@ -160,7 +160,7 @@ class VipePanorama(LightningModule):
         """Create a ViPE VideoStream from a batch of panorama tensors."""
 
         assert images.dim() == 4, "Expected tensor shaped [S, C, H, W]"
-        frames = images.to(device=self.device, dtype=th.float32)
+        frames = images.to(device=self.device, dtype=cast(th.dtype, self.dtype))
         return _TensorVideoStream(frames, name="tensor_sequence", fps=self.fps)
 
     def _apply_init_processors(self, video_stream: VideoStream) -> VideoStream:
@@ -195,7 +195,7 @@ class VipePanorama(LightningModule):
     def _run_slam(self, slam_streams: list[VideoStream], rig: lt.SE3) -> SLAMOutput:
         """Run the ViPE SLAM backend."""
 
-        slam_pipeline = SLAMSystem(device=th.device("cuda"), config=self.slam_cfg)
+        slam_pipeline = SLAMSystem(device=self.device, config=self.slam_cfg)
         return slam_pipeline.run(slam_streams, rig=rig)
 
     def _project_depth(self, trajectory: lt.SE3, slam_map: SLAMMap | None, size: tuple[int, int]) -> th.Tensor | None:
@@ -205,7 +205,7 @@ class VipePanorama(LightningModule):
             return None
 
         depth_maps = []
-        intrinsics = th.zeros(4, device=self.device, dtype=th.float32)
+        intrinsics = th.zeros(4, device=self.device, dtype=cast(th.dtype, self.dtype))
         for frame_idx in range(trajectory.shape[0]):
             depth = slam_map.project_map(
                 frame_idx,
@@ -249,7 +249,7 @@ class VipePanorama(LightningModule):
 
             depth = self._project_depth(trajectory, slam_output.slam_map, (height, width)) if self.return_depth else None
 
-        return pose_w2c.unsqueeze(0), depth.unsqueeze(0) if depth is not None else None, {}
+        return pose_w2c.unsqueeze(0).to(images), depth.unsqueeze(0).to(images) if depth is not None else None, {}
 
     def configure_optimizers(self):
         """Lightning hook for compatibility; ViPE is inference-only."""

@@ -5,11 +5,17 @@ services:
       dockerfile: .devcontainer/Containerfile
       args:
         TORCH_CUDA_ARCH_LIST:
+    shm_size: '16gb'
     env_file: .env
     volumes:
-      - /workspace/.venv/
-      - /home/ubuntu/.cache/uv
-      - /home/ubuntu/.cache/torch/
+      - devcontainer_venv:/workspace/.venv/
+      - devcontainer_uv_cache:/home/ubuntu/.cache/uv
+      - devcontainer_torch_cache:/home/ubuntu/.cache/torch/
       - "..:/workspace:rw"
       - "${DATASET_ROOT}:${DATASET_ROOT}:r"
       - "~/.codex/:/home/ubuntu/.codex/:rw"
+
+volumes:
+  devcontainer_venv:
+  devcontainer_uv_cache:
+  devcontainer_torch_cache:

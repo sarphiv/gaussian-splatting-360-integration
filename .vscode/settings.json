@@ -2,7 +2,8 @@
     "python.analysis.typeCheckingMode": "standard",
     "python.analysis.extraPaths": [
         "${workspaceFolder}/src",
-        "${workspaceFolder}/vendor/vipe"
+        "${workspaceFolder}/vendor/vipe",
+        "${workspaceFolder}/vendor/vggt"
     ],
     "debugpy.debugJustMyCode": false,
     "chatgpt.commentCodeLensEnabled": false

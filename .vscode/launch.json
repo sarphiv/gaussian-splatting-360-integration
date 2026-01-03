@@ -12,10 +12,10 @@
             "console": "integratedTerminal"
         },
         {
-            "name": "Python Debugger: splat_init:main",
+            "name": "Python Debugger: splat_init:evaluate",
             "type": "debugpy",
             "request": "launch",
-            "program": "${workspaceFolder}/src/splat_init/main.py",
+            "program": "${workspaceFolder}/src/splat_init/evaluate.py",
             "console": "integratedTerminal"
         }
     ]

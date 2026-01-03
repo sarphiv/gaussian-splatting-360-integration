@@ -1,4 +1,5 @@
 from __future__ import annotations
+from typing import cast
 
 import torch as th
 from lightning.pytorch import LightningModule
@@ -14,7 +15,7 @@ from utilities.pose import (
 class SequenceChunker(LightningModule):
     """Run a sequence model in overlapping chunks and merge the outputs when enabled."""
 
-    def __init__(self, model: th.nn.Module, chunking: tuple[int, int] | None, verbose: bool) -> None:
+    def __init__(self, model: LightningModule, chunking: tuple[int, int] | None, verbose: bool) -> None:
         """Wrap a sequence model with optional chunked processing."""
         super().__init__()
         self.model = model
@@ -29,18 +30,18 @@ class SequenceChunker(LightningModule):
         scene = sample[0]
 
         if self.chunking is None:
-            images = self._slice_sample(scene, range(len(scene))).rgba.to(device=self.device).unsqueeze(0)
+            images = self._slice_sample(scene, range(len(scene))).rgba.unsqueeze(0)
             pose_pred, _, _ = self.model.forward(images)
             return pose_pred[0], None, {}
 
         idx_chunks, idx_overlap = self._chunk_ranges(len(scene), self.chunk_size, self.chunk_overlap)
 
-        pose_pred = th.zeros((len(scene), 4, 4), device=self.device, dtype=th.float32)
+        pose_pred = th.zeros((len(scene), 4, 4), dtype=cast(th.dtype, self.model.dtype))
 
         iterator = tqdm(zip(idx_chunks, idx_overlap), desc="Processing chunks", total=len(idx_chunks), leave=False, disable=not self.verbose)
         for chunk_range, overlap_range in iterator:
             chunk_sample = self._slice_sample(scene, chunk_range)
-            images = chunk_sample.rgba.to(device=self.device).unsqueeze(0)
+            images = chunk_sample.rgba.unsqueeze(0)
             pose_chunk, _, _ = self.model.forward(images)
             pose_chunk = pose_chunk[0]
 

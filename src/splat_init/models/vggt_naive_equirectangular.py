@@ -9,6 +9,7 @@ baseline while also dumping position traces for downstream analysis.
 
 from __future__ import annotations
 
+from typing import cast
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,9 +45,11 @@ class VggtNaiveEquirectangular(LightningModule):
         super().__init__()
         self.save_hyperparameters()
 
-        self.model = VGGT.from_pretrained(model_url)
-        self.model.eval()
-
+        self.model = VGGT.from_pretrained(
+            model_url,
+            enable_point=False,
+            enable_track=False,
+        )
         self.output_dir = output_dir
 
     # ------------------------------------------------------------------
@@ -87,7 +90,7 @@ class VggtNaiveEquirectangular(LightningModule):
 
         *leading, _, height, width = rgba.shape
         leading_shape = tuple(leading)
-        rgba = rgba.to(device=self.device, dtype=th.float32)
+        rgba = rgba.to(device=self.device, dtype=cast(th.dtype, self.dtype))
 
         rgb = rgba[..., :3, :, :]
         alpha = rgba[..., 3:4, :, :]
@@ -112,53 +115,6 @@ class VggtNaiveEquirectangular(LightningModule):
         alpha = alpha.reshape(*leading_shape, 1, proc_height, proc_width)
         return rgb, alpha
 
-    def _preprocess_sample(self, sample: SceneSample) -> _ProcessedSample:
-        """Apply VGGT's crop/pad preprocessing in-memory to one room sample."""
-
-        rgba = sample.rgba.to(device=self.device, dtype=th.float32)
-        depth = sample.depth.to(device=self.device, dtype=th.float32)
-        pose = sample.pose.to(device=self.device, dtype=th.float32)
-
-        assert rgba.dim() == 4 and depth.dim() == 4, "Expected [S,C,H,W] tensors"
-        assert rgba.shape[0] == depth.shape[0] == pose.shape[0]
-        assert rgba.shape[1] == 4, "RGBA tensor must contain four channels"
-        assert depth.shape[1] == 1, "Depth tensor must contain a single channel"
-
-        rgb, alpha = self._preprocess_rgba_tensor(rgba)
-
-        _, _, height, width = depth.shape
-        new_height = self._resize_height(height, width, VGGT_TARGET_SIZE)
-
-        depth_leading = depth.shape[:-3]
-        depth = depth.reshape(-1, 1, height, width)
-        depth = F.interpolate(depth, size=(new_height, VGGT_TARGET_SIZE), mode="bilinear", align_corners=False)
-        depth = self._center_crop_height(depth, VGGT_TARGET_SIZE)
-        depth = depth.reshape(*depth_leading, 1, depth.shape[-2], depth.shape[-1])
-
-        return _ProcessedSample(rgb=rgb, depth=depth, alpha=alpha, pose=pose)
-
-    # ------------------------------------------------------------------
-    # Pose utilities
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _geodesic_so3(R_gt: th.Tensor, R_pred: th.Tensor) -> th.Tensor:
-        """Return the geodesic distance (radians) between rotation matrices."""
-
-        delta = R_gt.transpose(-1, -2) @ R_pred
-        trace = th.diagonal(delta, dim1=-2, dim2=-1).sum(dim=-1)
-        cos_theta = ((trace - 1.0) * 0.5).clamp(-1.0, 1.0)
-        return th.acos(cos_theta)
-
-    @staticmethod
-    def _from_pose_encoding(pose_enc: th.Tensor) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
-        """Decode VGGT pose encoding into quaternions, translations, and FoVs."""
-
-        quat = pose_enc[..., 3:7]
-        translation = pose_enc[..., :3]
-        fov = pose_enc[..., 7:9]
-        return quat, translation, fov
-
     # ------------------------------------------------------------------
     # Core logic
     # ------------------------------------------------------------------
@@ -174,27 +130,9 @@ class VggtNaiveEquirectangular(LightningModule):
             rgb, _ = self._preprocess_rgba_tensor(images)
         else:
             assert height == VGGT_TARGET_SIZE and width == VGGT_TARGET_SIZE, "RGB inputs must already be preprocessed"
-            rgb = images.to(device=self.device, dtype=th.float32).clamp(0.0, 1.0)
+            rgb = images.to(device=self.device, dtype=cast(th.dtype, self.dtype)).clamp(0.0, 1.0)
 
         return rgb
-
-    def forward(self, images: th.Tensor) -> tuple[th.Tensor, th.Tensor, dict[str, th.Tensor]]:
-        """Forward pass returning pose matrices and depth predictions."""
-
-        rgb_inputs = self._prepare_forward_inputs(images).to(self.dtype)
-
-        preds = self.model(rgb_inputs)
-        pose_enc, depth_pred = self._gather_predictions(preds)
-        pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
-
-        return pose_mats_pred, depth_pred, {}
-
-    def _compute_depth_loss(self, depth_gt: th.Tensor, depth_pred: th.Tensor, alpha: th.Tensor) -> th.Tensor:
-        """Mean squared error on depth masked by alpha and saturation threshold."""
-
-        mask = (alpha > 0.5).float() * (depth_gt < 0.99).float()
-        residual = (depth_gt - depth_pred) ** 2
-        return (residual * mask).mean()
 
     def _gather_predictions(
         self,
@@ -206,112 +144,37 @@ class VggtNaiveEquirectangular(LightningModule):
         depth = preds["depth"].squeeze(-1).unsqueeze(2)  # [B, S, 1, H, W]
         return pose, depth
 
+    @staticmethod
+    def _from_pose_encoding(pose_enc: th.Tensor) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
+        """Decode VGGT pose encoding into quaternions, translations, and FoVs."""
+
+        quat = pose_enc[..., 3:7]
+        translation = pose_enc[..., :3]
+        fov = pose_enc[..., 7:9]
+        return quat, translation, fov
+
     def _pose_matrices_from_encoding(self, pose: th.Tensor) -> th.Tensor:
         """Convert pose encoding into homogeneous transformation matrices."""
 
         quat, translation, _ = self._from_pose_encoding(pose)
         rotation = quat_to_mat_xyzw(quat)
 
-        mats = th.zeros((*rotation.shape[:-2], 4, 4), device=rotation.device, dtype=rotation.dtype)
+        mats = th.zeros((*rotation.shape[:-2], 4, 4), device=pose.device, dtype=pose.dtype)
         mats[..., :3, :3] = rotation
         mats[..., :3, 3] = translation
         mats[..., 3, 3] = 1.0
         return mats
 
-    @staticmethod
-    def _relative_rotations(mats: th.Tensor) -> th.Tensor:
-        """Return rotations relative to the first pose."""
+    def forward(self, images: th.Tensor) -> tuple[th.Tensor, th.Tensor, dict[str, th.Tensor]]:
+        """Forward pass returning pose matrices and depth predictions."""
 
-        ref_inv = th.linalg.inv(mats[0])
-        relative = mats @ ref_inv
-        return relative[:, :3, :3]
+        rgb_inputs = self._prepare_forward_inputs(images)
 
-    def _write_poses(
-        self,
-        ids: list[str],
-        rots: th.Tensor,
-        trans: th.Tensor
-    ) -> None:
-        # If no output, skip writing poses
-        if self.output_dir is None:
-            return
+        preds = self.model(rgb_inputs)
+        pose_enc, depth_pred = self._gather_predictions(preds)
+        pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
 
-        # Create output structure
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+        return pose_mats_pred.to(images), depth_pred.to(images), {}
 
-        for id, r, t in zip(ids, rots, trans):
-            output_file = self.output_dir / f"{id}.pt"
-
-            # Prepare pose matrices
-            seq_len = r.shape[0]
-            scale = th.tensor([0, 0, 0, 1], dtype=th.float32)
-
-            poses = th.empty([seq_len, 4, 4], dtype=th.float32)
-            poses[:, :3, :3] = r.to("cpu", th.float32)
-            poses[:, :3, 3] = t.to("cpu", th.float32)
-            poses[:, 3, :] = scale
-
-            # Store as dictionary
-            th.save({"poses": poses}, output_file)
-
-
-    def _shared_step(self, batch: list[SceneSample], stage: str) -> dict[str, th.Tensor]:
-        """Compute losses and auxiliary metrics for one step."""
-
-        assert len(batch) == 1, "Batch size > 1 not supported yet"
-        sample = batch[0]
-        num_views = sample.rgba.shape[0]
-        assert num_views > 1, "Expected multiple views per scene"
-
-        processed = self._preprocess_sample(sample)
-        rgb_inputs = processed.rgb.unsqueeze(0)
-        pose_mats_pred, depth_out, _ = self.forward(rgb_inputs)
-
-        gt_depth = processed.depth[:num_views]
-        alpha = processed.alpha[:num_views]
-
-        loss_depth = self._compute_depth_loss(gt_depth, depth_out, alpha)
-
-        pose_mats = processed.pose[:num_views]
-        target_rot = self._relative_rotations(pose_mats)
-        target_centers = camera_centers(pose_mats)
-        target_centers_rel = target_centers - target_centers[:1]
-
-        pred_ref_inv = th.linalg.inv(pose_mats_pred[0])
-        pose_rel_pred = pose_mats_pred @ pred_ref_inv
-        pred_rot_rel = pose_rel_pred[:, :3, :3]
-
-        pred_centers = camera_centers(pose_mats_pred)
-        pred_centers_rel = pred_centers - pred_centers[:1]
-
-        loss_rot = self._geodesic_so3(target_rot[1:], pred_rot_rel[1:]).mean()
-        loss_trans = ((target_centers_rel[1:] - pred_centers_rel[1:]) ** 2).mean()
-
-        self._write_poses([sample.id], pred_rot_rel.unsqueeze(0), pred_centers_rel.unsqueeze(0))
-
-        loss = 0.2 * loss_depth + 0.4 * loss_rot + 0.4 * loss_trans
-
-        prefix = TRAIN_PREFIX if stage == "train" else VALIDATION_PREFIX
-        metrics = {
-            "loss": loss,
-            f"{prefix}_loss": loss.detach(),
-            f"{prefix}_loss_depth": loss_depth.detach(),
-            f"{prefix}_loss_r": loss_rot.detach(),
-            f"{prefix}_loss_t": loss_trans.detach(),
-        }
-        return metrics
-
-    def training_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
-        metrics = self._shared_step(batch, stage="train")
-        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=True, batch_size=1)
-        return metrics["loss"]
-
-    def validation_step(self, batch: list[SceneSample], batch_idx: int) -> STEP_OUTPUT:
-        metrics = self._shared_step(batch, stage="val")
-        self.log_dict({k: v for k, v in metrics.items() if k != "loss"}, prog_bar=True, on_step=False, batch_size=1)
-        return metrics["loss"]
-
-    def configure_optimizers(self) -> OptimizerLRSchedulerConfig:
-        optimizer = th.optim.Adam(self.parameters(), lr=1e-4)
-        scheduler = th.optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, total_iters=1)
-        return OptimizerLRSchedulerConfig(optimizer=optimizer, lr_scheduler=scheduler)
+    def configure_optimizers(self):
+        return []

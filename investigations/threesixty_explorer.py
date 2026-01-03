@@ -16,7 +16,16 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2025-11-27T04:23:25")
 # PRED_PATH = Path("outputs/2025-11-27T05:34:31") # ViPE 4
 # PRED_PATH = Path("outputs/2025-11-27T07:26:26") # VGGT Perspective 8
-PRED_PATH = Path("outputs/2026-01-02T23:43:28") # DA3 Perspective 8
+# PRED_PATH = Path("outputs/2026-01-02T23:43:28") # DA3 Perspective 8
+# PRED_PATH = Path("outputs/2026-01-04T00:47:42") # DA3 Perspective 1 (subset 1)
+# PRED_PATH = Path("outputs/2026-01-04T01:33:15") # DA3 Perspective 4 (subset 1)
+# PRED_PATH = Path("outputs/2026-01-04T19:28:26") # DA3 Perspective 8 #2
+# PRED_PATH = Path("outputs/2026-01-04T19:57:45") # DA3 Perspective 8 #3
+# PRED_PATH = Path("outputs/2026-01-04T20:19:45") # DA3 Perspective 8 #4
+# PRED_PATH = Path("outputs/2026-01-04T20:30:35") # DA3 Perspective 8 #5
+# PRED_PATH = Path("outputs/2026-01-04T20:39:19") # DA3 Perspective 4
+# PRED_PATH = Path("outputs/2026-01-04T21:12:24") # DA3 Perspective 1
+PRED_PATH = Path("outputs/2026-01-04T23:34:12") # DA3 Perspective 4 #2
 # PRED_PATH = Path("outputs/2025-11-27T06:59:04")
 PRED_IDX = 0
 
