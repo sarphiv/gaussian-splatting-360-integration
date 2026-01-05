@@ -26,6 +26,7 @@ ensure it matches the interface and behavior of existing pose initialization mod
 - [ ] Only 4 faces (indices 0,1,4,5) are used with `OTCProjector(alpha=1e-9)`.
 - [ ] Missing registrations are skipped; identity pose is emitted if none register.
 - [ ] COLMAP artifacts are not persisted beyond temporary directories.
+- [ ] When GPU extraction is enabled, `num_threads=1` is enforced and `gpu_index` is a string.
 - [ ] Metrics or performance gates: a short sequence completes without GPU OOM.
 - [ ] Scope assertions (must remain unchanged): existing model behavior and CLI flags.
 

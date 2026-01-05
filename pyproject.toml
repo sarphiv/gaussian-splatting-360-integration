@@ -26,6 +26,8 @@ dependencies = [
     "depth-anything-3",
     "wandb>=0.21.3",
     "pyqt5>=5.15.11",
+    "pycolmap-cuda12>=3.13.0",
+    "pyceres>=2.6",
 ]
 
 [project.scripts]
@@ -42,3 +44,7 @@ depth-anything-3 = { path = "vendor/depth-anything-3", editable = true }
 
 [tool.uv]
 no-build-isolation-package = ["vipe"]
+override-dependencies = [
+    "nvidia-cuda-runtime-cu12>=12.8.0",
+    "nvidia-curand-cu12>=10.3.9.0"
+]

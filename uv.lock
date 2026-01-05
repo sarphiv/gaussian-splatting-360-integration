@@ -3,17 +3,19 @@ revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version == '3.13.*' and platform_machine == 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.13' and platform_machine == 'aarch64' and sys_platform == 'linux'",
+    "python_full_version < '3.14' and platform_machine == 'aarch64' and sys_platform == 'linux'",
     "python_full_version >= '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux'",
-    "python_full_version == '3.13.*' and platform_machine != 'aarch64' and sys_platform == 'linux'",
-    "python_full_version < '3.13' and platform_machine != 'aarch64' and sys_platform == 'linux'",
+    "python_full_version < '3.14' and platform_machine != 'aarch64' and sys_platform == 'linux'",
     "python_full_version >= '3.14' and sys_platform == 'darwin'",
-    "python_full_version == '3.13.*' and sys_platform == 'darwin'",
-    "python_full_version < '3.13' and sys_platform == 'darwin'",
+    "python_full_version < '3.14' and sys_platform == 'darwin'",
     "python_full_version >= '3.14' and sys_platform != 'darwin' and sys_platform != 'linux'",
-    "python_full_version == '3.13.*' and sys_platform != 'darwin' and sys_platform != 'linux'",
-    "python_full_version < '3.13' and sys_platform != 'darwin' and sys_platform != 'linux'",
+    "python_full_version < '3.14' and sys_platform != 'darwin' and sys_platform != 'linux'",
+]
+
+[manifest]
+overrides = [
+    { name = "nvidia-cuda-runtime-cu12", specifier = ">=12.8.0" },
+    { name = "nvidia-curand-cu12", specifier = ">=10.3.9.0" },
 ]
 
 [[package]]
@@ -2323,7 +2325,9 @@ name = "nvidia-cuda-runtime-cu12"
 version = "12.8.90"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/7c/75/f865a3b236e4647605ea34cc450900854ba123834a5f1598e160b9530c3a/nvidia_cuda_runtime_cu12-12.8.90-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:52bf7bbee900262ffefe5e9d5a2a69a30d97e2bc5bb6cc866688caa976966e3d", size = 965265, upload-time = "2025-03-07T01:39:43.533Z" },
     { url = "https://files.pythonhosted.org/packages/0d/9b/a997b638fcd068ad6e4d53b8551a7d30fe8b404d6f1804abf1df69838932/nvidia_cuda_runtime_cu12-12.8.90-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:adade8dcbd0edf427b7204d480d6066d33902cab2a4707dcfc48a2d0fd44ab90", size = 954765, upload-time = "2025-03-07T01:40:01.615Z" },
+    { url = "https://files.pythonhosted.org/packages/30/a5/a515b7600ad361ea14bfa13fb4d6687abf500adc270f19e89849c0590492/nvidia_cuda_runtime_cu12-12.8.90-py3-none-win_amd64.whl", hash = "sha256:c0c6027f01505bfed6c3b21ec546f69c687689aad5f1a377554bc6ca4aa993a8", size = 944318, upload-time = "2025-03-07T01:51:01.794Z" },
 ]
 
 [[package]]
@@ -2361,7 +2365,9 @@ name = "nvidia-curand-cu12"
 version = "10.3.9.90"
 source = { registry = "https://pypi.org/simple" }
 wheels = [
+    { url = "https://files.pythonhosted.org/packages/45/5e/92aa15eca622a388b80fbf8375d4760738df6285b1e92c43d37390a33a9a/nvidia_curand_cu12-10.3.9.90-py3-none-manylinux_2_27_aarch64.whl", hash = "sha256:dfab99248034673b779bc6decafdc3404a8a6f502462201f2f31f11354204acd", size = 63625754, upload-time = "2025-03-07T01:46:10.735Z" },
     { url = "https://files.pythonhosted.org/packages/fb/aa/6584b56dc84ebe9cf93226a5cde4d99080c8e90ab40f0c27bda7a0f29aa1/nvidia_curand_cu12-10.3.9.90-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:b32331d4f4df5d6eefa0554c565b626c7216f87a06a4f56fab27c3b68a830ec9", size = 63619976, upload-time = "2025-03-07T01:46:23.323Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/75/70c05b2f3ed5be3bb30b7102b6eb78e100da4bbf6944fd6725c012831cab/nvidia_curand_cu12-10.3.9.90-py3-none-win_amd64.whl", hash = "sha256:f149a8ca457277da854f89cf282d6ef43176861926c7ac85b2a0fbd237c587ec", size = 62765309, upload-time = "2025-03-07T01:54:20.478Z" },
 ]
 
 [[package]]
@@ -3002,6 +3008,25 @@ wheels = [
 ]
 
 [[package]]
+name = "pyceres"
+version = "2.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b4/a7/bc1aaea0a2e06b35f1b856c95e0a392719d1395488e36ff87066dba09cc4/pyceres-2.6-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:8ef9014f84b31dbf94936f11964411f67e9cc1733aca8ff38fda079b890adfa7", size = 2420210, upload-time = "2025-11-05T12:36:06.482Z" },
+    { url = "https://files.pythonhosted.org/packages/dc/6d/bea6219072d8d86a5f11f6f61c588780be0bbd5aca1221fc8ad646bcba73/pyceres-2.6-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:284204c5303c582dc3918f43288e7b78bfc674a01e5561b252298a2d133ad14d", size = 4933829, upload-time = "2025-11-05T12:36:08.241Z" },
+    { url = "https://files.pythonhosted.org/packages/4c/4c/2291a63a81ddfa306ee18d57156a458758953933212f224ea3a7bb6b036c/pyceres-2.6-cp312-cp312-win_amd64.whl", hash = "sha256:c7e24463365778f423c34cd0e06ce57634a2e26da16935eec094c72263520493", size = 8457845, upload-time = "2025-11-05T12:36:09.956Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/6d/9e55d8f6b1c504b2a5ac8220aa979e4d2c209be680a67cccb8e729cca34e/pyceres-2.6-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:8561fe1e520171499a606ca500baa5d3f90012dd264e9696fdd87126bed9378d", size = 2420311, upload-time = "2025-11-05T12:36:12.29Z" },
+    { url = "https://files.pythonhosted.org/packages/49/9a/17e371fbcbe29f1041a7014630bb7ff03c87215240b14362fe7e57bdef40/pyceres-2.6-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f5a408a205a690431190b21a4448130c67b838b14dfd459cee22361a06060a1f", size = 4933511, upload-time = "2025-11-05T12:36:14.367Z" },
+    { url = "https://files.pythonhosted.org/packages/1f/32/7588f22cc526abdef03414648eb7bedff5bd5353627f5646f988c2129687/pyceres-2.6-cp313-cp313-win_amd64.whl", hash = "sha256:c8da59494f317f38d8f7c3e980052997f4d5b01d456e440d964a38d09a26bdea", size = 8457867, upload-time = "2025-11-05T12:36:16.084Z" },
+    { url = "https://files.pythonhosted.org/packages/63/89/eaf73a99c4999452e1bb8c9369e477567abc58ff8ece636d20522683157b/pyceres-2.6-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:8759bfe308e2f951a7e1f0752b345856dc276300336bddaea9d35dd86f6d8c16", size = 2422877, upload-time = "2025-11-05T12:36:18.414Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/08/25c45688d04b1a474ffba4726f219947afd36e02d925bc3387b4a9073bc1/pyceres-2.6-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:0932b7cb21de92823bbc48c7bbb8c8df992c8a43498b99b64ee37293269ef3d0", size = 4934918, upload-time = "2025-11-05T12:36:20.582Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/78/75487ad67101a0c1f2f727fa11020329a43a2ab628f85abbe59937c49c5b/pyceres-2.6-cp314-cp314-win_amd64.whl", hash = "sha256:e89d4d4d6c3507058a751c72b4dd4c59f6742a0a4262845b1ceafff65f943a2c", size = 8634720, upload-time = "2025-11-05T12:36:22.282Z" },
+]
+
+[[package]]
 name = "pycollada"
 version = "0.9.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3031,6 +3056,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/4d/563867c2e69a82b4acea836e17b6cb6a2702c24ef4b855ee83458daa2b16/pycolmap-3.13.0-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:d00ba606751167e03463135f2f61e4c7dfae3c3b08256b44cd5fcd0ba674e7f2", size = 14550539, upload-time = "2025-11-07T17:00:37.723Z" },
     { url = "https://files.pythonhosted.org/packages/84/4b/a0f4adf8629af2b65a310f3ccd66a281168ddbbd1d1df69d042599bc1649/pycolmap-3.13.0-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:202d73147c8e5c98255b212aec5059cbd325b7e7f0b2f73ec94d7d0da1c98e0a", size = 20343926, upload-time = "2025-11-07T17:00:39.941Z" },
     { url = "https://files.pythonhosted.org/packages/a9/62/447722f1b54e0e9a04029e36665352328535c93b26a08ccc9bd146392db9/pycolmap-3.13.0-cp314-cp314-win_amd64.whl", hash = "sha256:9617616fa8d6fed75990a226da18604f1313e30c768027de1bfa834532b7d261", size = 19263952, upload-time = "2025-11-07T17:00:42.615Z" },
+]
+
+[[package]]
+name = "pycolmap-cuda12"
+version = "3.13.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "nvidia-cuda-runtime-cu12" },
+    { name = "nvidia-curand-cu12" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4f/8f/b24380fe1ff9a4af5c51150d2358cf00b918f0a5c1acd9085b6101d43167/pycolmap_cuda12-3.13.0-cp312-cp312-manylinux_2_34_x86_64.whl", hash = "sha256:da80d10df5325fbb14d48ff79265660b6ba5d604875579101b6bf97cfe7740f2", size = 64793685, upload-time = "2025-11-07T17:01:01.008Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/b1/17e1d0747885d761fdbc15a0a5e6bde1d7fda386a92a781b38ac8656e3b0/pycolmap_cuda12-3.13.0-cp313-cp313-manylinux_2_34_x86_64.whl", hash = "sha256:5556b82ce973d21cd5cc41db0e59fe87e34cafaa1ff96765c2c9f8acce8b6d66", size = 64793068, upload-time = "2025-11-07T17:01:04.321Z" },
+    { url = "https://files.pythonhosted.org/packages/99/bb/1a9ec9e8e0c1cc23029115a0609208b8f8c1012321c5aeb7b7e4a91223a2/pycolmap_cuda12-3.13.0-cp314-cp314-manylinux_2_34_x86_64.whl", hash = "sha256:bdc1d1012fd9085e286000bc0480d751f3d6773088b219ab24c7af6e01715710", size = 64798148, upload-time = "2025-11-07T17:01:08.041Z" },
 ]
 
 [[package]]
@@ -4080,6 +4120,8 @@ dependencies = [
     { name = "lightning" },
     { name = "loguru" },
     { name = "matplotlib" },
+    { name = "pyceres" },
+    { name = "pycolmap-cuda12" },
     { name = "pyqt5" },
     { name = "rerun-sdk" },
     { name = "torch" },
@@ -4102,6 +4144,8 @@ requires-dist = [
     { name = "lightning", specifier = ">=2.5.5" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "matplotlib", specifier = ">=3.10.6" },
+    { name = "pyceres", specifier = ">=2.6" },
+    { name = "pycolmap-cuda12", specifier = ">=3.13.0" },
     { name = "pyqt5", specifier = ">=5.15.11" },
     { name = "rerun-sdk", specifier = ">=0.23.1" },
     { name = "torch", specifier = ">=2.8.0" },
@@ -4223,11 +4267,11 @@ dependencies = [
     { name = "nvidia-cublas-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "nvidia-cuda-cupti-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "nvidia-cuda-nvrtc-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "nvidia-cuda-runtime-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-cuda-runtime-cu12" },
     { name = "nvidia-cudnn-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "nvidia-cufft-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "nvidia-cufile-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "nvidia-curand-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "nvidia-curand-cu12" },
     { name = "nvidia-cusolver-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "nvidia-cusparse-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "nvidia-cusparselt-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },

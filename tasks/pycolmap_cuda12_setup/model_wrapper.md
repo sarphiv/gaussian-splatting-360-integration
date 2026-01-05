@@ -78,6 +78,9 @@ images, using the documented pycolmap API (no internet needed for implementers).
     - [ ] Set GPU/CPU options explicitly:
         - [ ] `FeatureExtractionOptions.use_gpu` and `FeatureExtractionOptions.gpu_index`.
         - [ ] `FeatureMatchingOptions.use_gpu` and `FeatureMatchingOptions.gpu_index`.
+        - [ ] When `use_gpu=True` for extraction, set `FeatureExtractionOptions.num_threads=1`
+              to avoid multi-threaded GPU SIFT OpenGL context failures.
+        - [ ] `gpu_index` should be a string (e.g. `"0"`), not an int.
         - [ ] `device=pycolmap.Device.cuda` if GPU requested, else `Device.cpu` (enum also has `Device.auto`).
         - [ ] `SequentialPairingOptions.overlap` to control temporal matching within face groups.
     - [ ] Define merge behavior for missing registrations:
