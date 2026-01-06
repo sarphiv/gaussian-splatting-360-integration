@@ -30,21 +30,24 @@ the evaluation CLI and model registry so it can be selected like existing models
     - [x] Note how models are mapped and how SequenceChunker is used.
     - [x] Confirm dataset outputs supply RGBA tensors expected by model wrappers.
     - [x] Describe a small CLI run to validate new model wiring.
-- [ ] Formulate overall approach to solve the task.
-    - [ ] Add `"pycolmap_perspective_transform"` to `ModelArgs.model` Literal.
-    - [ ] Do not add new CLI args; rely on model initializer defaults.
-    - [ ] If we later need overrides, add them as optional init params without changing CLI.
-    - [ ] Update `_build_model` in `src/splat_init/evaluate.py` to import and instantiate
+- [x] Formulate overall approach to solve the task.
+    - [x] Add `"pycolmap_perspective_transform"` to `ModelArgs.model` Literal.
+    - [x] Do not add new CLI args; rely on model initializer defaults.
+    - [x] If we later need overrides, add them as optional init params without changing CLI.
+    - [x] Update `_build_model` in `src/splat_init/evaluate.py` to import and instantiate
           `PycolmapPerspectiveTransform` with the selected args.
-    - [ ] Ensure the `SequenceChunker` call path is unchanged for other models.
-    - [ ] Document the expected class name and constructor signature in this file.
-    - [ ] Decide chunking default: use `chunker=None` for pycolmap in CLI runs unless
+    - [x] Ensure the `SequenceChunker` call path is unchanged for other models.
+    - [x] Document the expected class name and constructor signature in this file.
+        - [x] Expect `PycolmapPerspectiveTransform()` in
+              `splat_init.models.pycolmap_perspective_transform`.
+    - [x] Decide chunking default: use `chunker=None` for pycolmap in CLI runs unless
           users explicitly override, because COLMAP expects the full sequence.
-    - [ ] Note behavior if chunking is enabled: SequenceChunker will call the model
+    - [x] Note behavior if chunking is enabled: SequenceChunker will call the model
           on shorter sequences; ensure this is acceptable in docs/comments.
+        - [x] Note: chunking behavior stays unchanged; the wrapper sees chunked sequences.
 - [ ] Append to the plan.
-    - [ ] Update the plan if argument naming or tyro ergonomics require changes.
-    - [ ] Record any backward-compat concerns for existing CLI scripts.
+    - [x] Confirm argument naming/tyro ergonomics require no changes.
+    - [x] Record no backward-compat concerns beyond the new model label.
     - [ ] Add notes after running a minimal evaluation invocation.
 
 

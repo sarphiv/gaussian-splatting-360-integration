@@ -3,6 +3,7 @@ from typing import cast
 from os import environ
 from math import degrees
 
+from loguru import logger
 import rerun as rr
 import rerun.blueprint as rrb
 import torch as th
@@ -25,7 +26,11 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2026-01-04T20:30:35") # DA3 Perspective 8 #5
 # PRED_PATH = Path("outputs/2026-01-04T20:39:19") # DA3 Perspective 4
 # PRED_PATH = Path("outputs/2026-01-04T21:12:24") # DA3 Perspective 1
-PRED_PATH = Path("outputs/2026-01-04T23:34:12") # DA3 Perspective 4 #2
+# PRED_PATH = Path("outputs/2026-01-04T23:34:12") # DA3 Perspective 4 #2
+# PRED_PATH = Path("outputs/2026-01-05T01:40:39") # COLMAP Perspective 8 lax
+# PRED_PATH = Path("outputs/2026-01-05T01:40:39") # COLMAP Perspective 8
+# PRED_PATH = Path("outputs/2026-01-05T02:00:04") # COLMAP Perspective 8 ext
+PRED_PATH = Path("outputs/2026-01-05T02:08:00") # COLMAP Perspective 4 ext
 # PRED_PATH = Path("outputs/2025-11-27T06:59:04")
 PRED_IDX = 0
 
@@ -57,6 +62,29 @@ dataset_validation = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET
 sample_reconstruct = dataset_reconstruct[scene_idx]
 gt_poses_w2c = dataset_validation.load_poses(scene_idx)
 
+# Metrics text
+text = (
+    f"- Model:\n"
+    f"  - Name: {pred_metrics["model_name"]}\n"
+    f"  - Chunker size: {pred_metrics["chunker_chunk_size"]}\n"
+    f"  - Chunker overlap: {pred_metrics["chunker_chunk_overlap"]}\n"
+    f"- Scene: {sample_reconstruct.id}\n"
+    f"  - Index: {scene_idx}\n"
+    f"  - Stride: {pred_metrics["dataset_stride"]}\n"
+    f"  - Length: {pred_metrics["sequence_length"]}\n"
+    f"- Compute:\n"
+    f"  - FPS: {cast(float, pred_metrics["sequence_length"]) / cast(float, pred_metrics["elapsed_seconds"]):.2f}\n"
+    f"  - Time (s): {cast(float, pred_metrics["elapsed_seconds"]):.2f}\n"
+    f"  - GPU max (GB): {cast(float, pred_metrics["gpu_memory_peak"]) / 1024**3:.2f}\n"
+    f"  - CPU RSS (GB): {cast(float, pred_metrics["cpu_memory_rss"]) / 1024**3:.2f}\n"
+    f"- Errors:\n"
+    f"  - Translation (m): {cast(float, pred_metrics["translation_error_mean"]):.2f} ± {cast(float, pred_metrics["translation_error_std"]):.2f}\n"
+    f"  - Rotation Geodesic (°): {degrees(cast(float, pred_metrics["rotation_geodesic_mean"])):.2f} ± {degrees(cast(float, pred_metrics["rotation_geodesic_std"])):.2f}\n"
+    f"  - Rotation Pointing (°): {degrees(cast(float, pred_metrics["rotation_pointing_mean"])):.2f} ± {degrees(cast(float, pred_metrics["rotation_pointing_std"])):.2f}\n"
+    f"  - Rotation Roll (°): {degrees(cast(float, pred_metrics["rotation_roll_mean"])):.2f} ± {degrees(cast(float, pred_metrics["rotation_roll_std"])):.2f}\n"
+)
+logger.info(text)
+
 
 # Setup rerun
 rr.init("rerun_threesixty_explorer", spawn=True)
@@ -81,6 +109,8 @@ rr.send_blueprint(rrb.Blueprint(
 rr.log("world", rr.ViewCoordinates.RIGHT_HAND_Y_UP, static=True)
 rr.set_time("time", timestamp=0)
 
+# Log metrics
+rr.log("info", rr.TextDocument(text=text, media_type=rr.MediaType.MARKDOWN))
 
 # Reconstruct environment
 for seq_idx in range(len(sample_reconstruct.pose)):
@@ -166,28 +196,3 @@ for seq_idx in range(sequence_len):
 
     rr.log(f"world/error/main/{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_main, origins=pos_main, colors=COLOR_ERROR, radii=SIZE_ERROR / 2, labels=[f"{pos_error:.3f}m"], show_labels=ERROR_LABELS_ENABLED))
 
-# Log metrics
-rr.log(
-    "info",
-    rr.TextDocument(
-        f"- Model:\n"
-        f"  - Name: {pred_metrics["model_name"]}\n"
-        f"  - Chunker size: {pred_metrics["chunker_chunk_size"]}\n"
-        f"  - Chunker overlap: {pred_metrics["chunker_chunk_overlap"]}\n"
-        f"- Scene: {sample_reconstruct.id}\n"
-        f"  - Index: {scene_idx}\n"
-        f"  - Stride: {pred_metrics["dataset_stride"]}\n"
-        f"  - Length: {pred_metrics["sequence_length"]}\n"
-        f"- Compute:\n"
-        f"  - FPS: {cast(float, pred_metrics["sequence_length"]) / cast(float, pred_metrics["elapsed_seconds"]):.2f}\n"
-        f"  - Time (s): {cast(float, pred_metrics["elapsed_seconds"]):.2f}\n"
-        f"  - GPU max (GB): {cast(float, pred_metrics["gpu_memory_peak"]) / 1024**3:.2f}\n"
-        f"  - CPU RSS (GB): {cast(float, pred_metrics["cpu_memory_rss"]) / 1024**3:.2f}\n"
-        f"- Errors:\n"
-        f"  - Translation (m): {cast(float, pred_metrics["translation_error_mean"]):.2f} ± {cast(float, pred_metrics["translation_error_std"]):.2f}\n"
-        f"  - Rotation Geodesic (°): {degrees(cast(float, pred_metrics["rotation_geodesic_mean"])):.2f} ± {degrees(cast(float, pred_metrics["rotation_geodesic_std"])):.2f}\n"
-        f"  - Rotation Pointing (°): {degrees(cast(float, pred_metrics["rotation_pointing_mean"])):.2f} ± {degrees(cast(float, pred_metrics["rotation_pointing_std"])):.2f}\n"
-        f"  - Rotation Roll (°): {degrees(cast(float, pred_metrics["rotation_roll_mean"])):.2f} ± {degrees(cast(float, pred_metrics["rotation_roll_std"])):.2f}\n",
-        media_type=rr.MediaType.MARKDOWN
-    )
-)

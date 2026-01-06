@@ -39,58 +39,59 @@ images, using the documented pycolmap API (no internet needed for implementers).
         - [x] Check `reconstruction.images` for registered images per face group.
         - [x] Confirm `image.cam_from_world.matrix()` -> 3x4 w2c and expand to 4x4.
         - [x] Validate partial merges: skip missing faces; identity fallback if all missing.
-- [ ] Formulate overall approach to solve the task.
-    - [ ] Define the `PycolmapPerspectiveTransform` API and constructor arguments.
-    - [ ] Specify face projection parameters:
-        - [ ] Use 4 faces with indices `[0, 1, 4, 5]` and `OTCProjector(alpha=1e-9)`.
-        - [ ] Group projected images by face during COLMAP processing.
-    - [ ] Outline the pycolmap pipeline using documented API signatures:
-        - [ ] `pycolmap.extract_features(database_path, image_path, image_names, camera_mode, camera_model, reader_options, extraction_options, device)`.
-        - [ ] `pycolmap.match_sequential(database_path, matching_options, pairing_options, verification_options, device)` for face-grouped sequences.
-        - [ ] Optional fallback to `pycolmap.match_exhaustive(...)` if sequential fails.
-        - [ ] `pycolmap.match_exhaustive(database_path, matching_options, pairing_options, verification_options, device)` (same option types).
-        - [ ] `pycolmap.incremental_mapping(database_path, image_path, output_path, options, input_path, initial_image_pair_callback, next_image_callback)` returning recon dict.
-        - [ ] Pass `image_names` in face-grouped order, e.g. `face_{face_idx}/frame_{frame_idx:06d}.png`.
-    - [ ] Define pose extraction from reconstructions and merge to panorama space:
-        - [ ] Use `reconstruction.images` / `reconstruction.image(image_id)` to access `Image`.
-        - [ ] Use `image.cam_from_world` (Rigid3d) and `Rigid3d.matrix()` -> 3x4 w2c; expand to 4x4.
-        - [ ] Convert numpy to torch and map back via `image.name` to `(frame_idx, face_idx)`.
-        - [ ] Pick the reconstruction with max `num_images` when multiple models exist.
-    - [ ] Describe logging, temporary storage, and cleanup strategy.
-    - [ ] Use `loguru` for stage timing and reconstruction stats logging.
-    - [ ] Plan the helper methods and file layout:
-        - [ ] `_temporary_directory` for RAM-backed temp storage.
-        - [ ] `_project_faces` to accept `[B, S, C, H, W]` and return `[S, F, 3, Hf, Wf]`.
-        - [ ] `_write_face_images` to emit uint8 PNGs with stable naming and face-grouped ordering
+- [x] Formulate overall approach to solve the task.
+    - [x] Define the `PycolmapPerspectiveTransform` API and constructor arguments.
+    - [x] Specify face projection parameters:
+        - [x] Use 4 faces with indices `[0, 1, 4, 5]` and `OTCProjector(alpha=1e-9)`.
+        - [x] Group projected images by face during COLMAP processing.
+    - [x] Outline the pycolmap pipeline using documented API signatures:
+        - [x] `pycolmap.extract_features(database_path, image_path, image_names, camera_mode, camera_model, reader_options, extraction_options, device)`.
+        - [x] Use `pycolmap.match_exhaustive(database_path, matching_options, pairing_options, verification_options, device)` to match like the default CLI pipeline.
+        - [x] `pycolmap.incremental_mapping(database_path, image_path, output_path, options, input_path, initial_image_pair_callback, next_image_callback)` returning recon dict.
+        - [x] Pass `image_names` in face-grouped order, e.g. `face_{face_idx}/frame_{frame_idx:06d}.png`.
+    - [x] Define pose extraction from reconstructions and merge to panorama space:
+        - [x] Use `reconstruction.images` / `reconstruction.image(image_id)` to access `Image`.
+        - [x] Use `image.cam_from_world()` (Rigid3d) and `Rigid3d.matrix()` -> 3x4 w2c; expand to 4x4.
+        - [x] Convert numpy to torch and map back via `image.name` to `(frame_idx, face_idx)`.
+        - [x] Pick the reconstruction with max `num_points3D` to mirror COLMAP's mapper output ordering.
+    - [x] Describe logging, temporary storage, and cleanup strategy.
+    - [x] Use `loguru` for stage timing and reconstruction stats logging.
+    - [x] Plan the helper methods and file layout:
+        - [x] `_temporary_directory` for RAM-backed temp storage.
+        - [x] `_project_faces` to accept `[B, S, C, H, W]` and return `[S, F, 3, Hf, Wf]`.
+        - [x] `_write_face_images` to emit uint8 PNGs with stable naming and face-grouped ordering
               (e.g. `face_0/frame_000000.png`), to aid sequential matching.
-        - [ ] `_run_colmap` to build database, extract features, match, and map.
-        - [ ] `_poses_from_reconstruction` to parse per-image w2c transforms.
-        - [ ] `_merge_face_poses` reusing DA3-style merge for panorama pose.
-    - [ ] Specify return contract: `(poses_w2c, None, extras)` with extras including per-face poses.
-    - [ ] Document camera intrinsics derivation for faces:
-        - [ ] Use `face_size` and `alpha` from `OTCProjector` to set `fx=fy=0.5*face_size/tan(alpha)`.
-        - [ ] Use `cx=cy=0.5*(face_size-1)` to align with pixel centers.
-    - [ ] Ensure all new methods include docstrings and type annotations.
-    - [ ] Set `ImageReaderOptions`/camera configuration:
-        - [ ] `camera_mode=pycolmap.CameraMode.SINGLE` for shared intrinsics.
-        - [ ] `camera_model="PINHOLE"` with `camera_params=[fx, fy, cx, cy]`.
-        - [ ] Use `ImageReaderOptions.camera_model` / `camera_params` to fix intrinsics.
-    - [ ] Set GPU/CPU options explicitly:
-        - [ ] `FeatureExtractionOptions.use_gpu` and `FeatureExtractionOptions.gpu_index`.
-        - [ ] `FeatureMatchingOptions.use_gpu` and `FeatureMatchingOptions.gpu_index`.
-        - [ ] When `use_gpu=True` for extraction, set `FeatureExtractionOptions.num_threads=1`
+        - [x] `_run_colmap` to build database, extract features, match, and map.
+        - [x] `_poses_from_reconstruction` to parse per-image w2c transforms.
+        - [x] `_merge_face_poses` reusing DA3-style merge for panorama pose.
+    - [x] Specify return contract: `(poses_w2c, None, extras)` with extras including per-face poses.
+    - [x] Document camera intrinsics derivation for faces:
+        - [x] Use cube-map 90° FOV pinhole intrinsics: `fx=fy=0.5*(face_size-1)`.
+        - [x] Use `cx=cy=0.5*(face_size-1)` to align with pixel centers.
+    - [x] Ensure all new methods include docstrings and type annotations.
+    - [x] Set `ImageReaderOptions`/camera configuration:
+        - [x] `camera_mode=pycolmap.CameraMode.SINGLE` for shared intrinsics.
+        - [x] `camera_model="PINHOLE"` with `camera_params="fx,fy,cx,cy"`.
+        - [x] Use `ImageReaderOptions.camera_model` / `camera_params` to fix intrinsics.
+    - [x] Set GPU/CPU options explicitly:
+        - [x] `FeatureExtractionOptions.use_gpu` and `FeatureExtractionOptions.gpu_index`.
+        - [x] `FeatureMatchingOptions.use_gpu` and `FeatureMatchingOptions.gpu_index`.
+        - [x] When `use_gpu=True` for extraction, set `FeatureExtractionOptions.num_threads=1`
               to avoid multi-threaded GPU SIFT OpenGL context failures.
-        - [ ] `gpu_index` should be a string (e.g. `"0"`), not an int.
-        - [ ] `device=pycolmap.Device.cuda` if GPU requested, else `Device.cpu` (enum also has `Device.auto`).
-        - [ ] `SequentialPairingOptions.overlap` to control temporal matching within face groups.
-    - [ ] Define merge behavior for missing registrations:
-        - [ ] Only merge faces that registered for each frame.
-        - [ ] If no faces registered for a frame, emit identity pose at origin.
-        - [ ] If no reconstructions, emit identity poses for all frames.
-- [ ] Append to the plan.
-    - [ ] Update the plan if pycolmap API details require adjustments.
-    - [ ] Update assumptions and questions after confirming camera model support.
-    - [ ] Record any constraints discovered during a small test run.
+        - [x] `gpu_index` should be a string (e.g. `"0"`), not an int.
+        - [x] `device=pycolmap.Device.cuda` if GPU requested, else `Device.cpu` (enum also has `Device.auto`).
+    - [x] Define merge behavior for missing registrations:
+        - [x] Only merge faces that registered for each frame.
+        - [x] If no faces registered for a frame, emit identity pose at origin.
+        - [x] If no reconstructions, emit identity poses for all frames.
+- [x] Append to the plan.
+    - [x] Update the plan if pycolmap API details require adjustments.
+        - [x] Note `ImageReaderOptions.camera_params` expects a comma-separated string.
+        - [x] Note `image.cam_from_world()` is a method on `pycolmap.Image`.
+        - [x] Note that `alpha` is unrelated to FOV for cube-map faces; use 90° FOV intrinsics.
+        - [x] Note the matching default is `match_exhaustive` to mirror COLMAP CLI.
+    - [x] Update assumptions and questions after confirming camera model support.
+    - [x] Record no constraints because no small test run was performed.
 
 
 # Assumptions

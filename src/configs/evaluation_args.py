@@ -14,10 +14,11 @@ class ModelArgs:
         "vggt_perspective_transform",
         "vipe_panorama",
         "da3_perspective_transform",
-    ] = "da3_perspective_transform"
+        "pycolmap_perspective_transform",
+    ] = "pycolmap_perspective_transform"
     dtype: Literal["float32", "bfloat16"] = "float32"
 
-    # Naive: (40, 15), Persp: (7, 4), ViPE: (16, 6), DA3: None
+    # Naive: (40, 15), Persp: (7, 4), ViPE: (16, 6), DA3: None, Pycolmap: None
     chunker: tuple[int, int] | None = None  # (size, overlap)
 
 
