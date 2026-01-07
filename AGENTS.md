@@ -14,7 +14,7 @@
 - Write clear happy path code, i.e. prefer non-defensive coding, avoid premature abstraction, and avoid overengineering.
 - If you are unsure about for example the format of an input. Write code to read and inspect the input so that you can avoid defensive coding. Remove this inspection code after you have understood the input format.
 - Use asserts to document assumptions if they help readers quickly understand and debug the code.
-- Add useful and up to date docstrings to all functions and classes. Focus on the code and behavior in the documentation - do not mention your instructions.
+- When creating new classes and functinos, add useful and up to date docstrings. Focus on the code and behavior in the documentation - do not mention your instructions.
 - Use type annotation wherever possible to improve code clarity.
 - Prefer f-strings for string interpolation.
 - Avoid unused imports, variables, and functions. Redundantly assigned variables are also discouraged. Avoid commented out code.

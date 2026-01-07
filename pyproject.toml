@@ -24,6 +24,7 @@ dependencies = [
     "vggt",
     "vipe",
     "depth-anything-3",
+    "otf-nvs",
     "wandb>=0.21.3",
     "pyqt5>=5.15.11",
     "pyceres>=2.6",
@@ -41,13 +42,19 @@ build-backend = "uv_build"
 vggt = { path = "vendor/vggt", editable = true }
 vipe = { path = "vendor/vipe", editable = true } # Must be editable for CLI to even work
 depth-anything-3 = { path = "vendor/depth-anything-3", editable = true }
+otf-nvs = { path = "vendor/otf-nvs", editable = true }
 
 [tool.uv]
-no-build-isolation-package = ["vipe"]
+no-build-isolation-package = [
+    "vipe",
+]
 override-dependencies = [
-    "nvidia-cuda-runtime-cu12>=12.8.0",
-    "nvidia-curand-cu12>=10.3.9.0"
+    "nvidia-cuda-runtime-cu12>=12.8.0",  # TODO: Next version after v3.13.0 should fix this
+    "nvidia-curand-cu12>=10.3.9.0"  # TODO: Next version after v3.13.0 should fix this
 ]
 
 [tool.uv.extra-build-dependencies]
-pycolmap-cuda12 = [ "pycolmap" ] # TODO: Next version after v3.13.0 should fix this
+pycolmap-cuda12 = [ "pycolmap" ]  # TODO: Next version after v3.13.0 should fix this
+diff-gaussian-rasterization = [ "torch", "numpy" ]
+fused-ssim = [ "torch" ]
+simple-knn = [ "torch" ]

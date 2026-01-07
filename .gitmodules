@@ -8,3 +8,6 @@
 [submodule "vendor/depth-anything-3"]
 	path = vendor/depth-anything-3
 	url = https://github.com/ByteDance-Seed/Depth-Anything-3.git
+[submodule "vendor/otf-nvs"]
+	path = vendor/otf-nvs
+	url = https://github.com/graphdeco-inria/on-the-fly-nvs.git
