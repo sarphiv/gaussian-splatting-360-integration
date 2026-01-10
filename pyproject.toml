@@ -32,7 +32,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pose-evaluate = "splat_init:evaluate"
+evaluate-poses = "splat_init.evaluate_poses:main"
 
 [build-system]
 requires = ["uv_build>=0.8.8,<0.9.0"]

@@ -17,7 +17,7 @@ from splat_init.models.sequence_chunker import SequenceChunker
 from splat_init.models.vggt_perspective_transform import VggtPerspectiveTransform
 from splat_init.models.vggt_naive_equirectangular import VggtNaiveEquirectangular
 from splat_init.models.vipe_panorama import VipePanorama
-from configs.evaluation_args import Args
+from configs.evaluate_poses_args import Args
 from utilities.pose import (
     camera_centers,
     geodesic_so3,
