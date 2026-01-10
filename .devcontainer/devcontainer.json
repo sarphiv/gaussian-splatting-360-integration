@@ -28,5 +28,5 @@
     // ],
     "overrideCommand": true,
     "initializeCommand": "ln -rsf .env .devcontainer/.env",
-    "postCreateCommand": "sudo chown -R ubuntu:ubuntu /home/ubuntu/.cache"
+    "postCreateCommand": "sudo chown -R ubuntu:ubuntu /home/ubuntu/.cache && rerun analytics disable"
 }

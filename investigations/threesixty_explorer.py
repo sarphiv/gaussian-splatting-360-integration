@@ -30,8 +30,8 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2026-01-05T01:40:39") # COLMAP Perspective 8 lax
 # PRED_PATH = Path("outputs/2026-01-05T01:40:39") # COLMAP Perspective 8
 # PRED_PATH = Path("outputs/2026-01-05T02:00:04") # COLMAP Perspective 8 ext
-PRED_PATH = Path("outputs/2026-01-05T02:08:00") # COLMAP Perspective 4 ext
-# PRED_PATH = Path("outputs/2025-11-27T06:59:04")
+# PRED_PATH = Path("outputs/2026-01-05T02:08:00") # COLMAP Perspective 4 ext
+PRED_PATH = Path("outputs/2026-01-11T20:34:06") # Ground Truth 4
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
@@ -52,9 +52,10 @@ COLOR_ERROR = [1.0, 0.0, 0.0]
 # TODO: Refactor perspective directions to x right, y up, z backward
 
 pred_scene_path = sorted(p for p in PRED_PATH.iterdir() if p.is_dir())[PRED_IDX]
-pred_metrics: dict[str, str | float | int] = th.load(pred_scene_path / "metrics.pt", map_location="cpu")
+pred_poses_path = pred_scene_path / "poses"
+pred_metrics: dict[str, str | float | int] = th.load(pred_poses_path / "metrics.pt", map_location="cpu")
 scene_idx = int(pred_metrics["scene_idx"])
-pred_poses_w2c = cast(th.Tensor, th.load(pred_scene_path / "model_output.pt", map_location="cpu")["poses"])
+pred_poses_w2c = cast(th.Tensor, th.load(pred_poses_path / "model_output.pt", map_location="cpu")["poses"])
 
 # NOTE: Depth is required, so many scenes are filtered out
 dataset_reconstruct = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=RECONSTRUCT_STRIDE, worker_count=DATASET_WORKERS)
@@ -195,4 +196,3 @@ for seq_idx in range(sequence_len):
     pos_pred_prev = pos_main
 
     rr.log(f"world/error/main/{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_main, origins=pos_main, colors=COLOR_ERROR, radii=SIZE_ERROR / 2, labels=[f"{pos_error:.3f}m"], show_labels=ERROR_LABELS_ENABLED))
-

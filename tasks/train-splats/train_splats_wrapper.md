@@ -35,20 +35,20 @@ Implement the new `src/splat_init/train_splats.py` entrypoint plus `src/configs/
     - [x] Confirm COLMAP points3D are unused in otf-nvs runtime (safe to leave empty).
     - [x] Note how `evaluate_poses.py` outputs poses and how datasets expose images.
 - [ ] Formulate overall approach to solve the task.
-    - [ ] Reuse dataset builders from `evaluate_poses.py` with `SceneSampleLazy` to avoid loading full sequences.
-    - [ ] Read `poses/metrics.pt` and use `dataset_stride` to configure the dataset; assert `len(scene) == sequence_length`.
-    - [ ] Assert `sequence_length >= 6` and fail fast otherwise.
-    - [ ] Stage data in `/dev/shm` via a helper similar to `_temporary_directory` in `da3_perspective_transform.py`.
-    - [ ] Project equirect frames using `OTCProjector(face_size=..., alpha=1e-9)`, keep faces `(0, 1, 4, 5)`, and compute `rgb_faces = rgb_faces * alpha_faces` once after projection.
-    - [ ] Perform projection + PNG writing in batches (similar to `Da3PerspectiveTransform._write_image_sequence`) to avoid holding all frames/faces in RAM/GPU at once.
-    - [ ] Define the face mapping explicitly using `OTCProjector`/`cube_face_relative_rotations` order (`_FACE_ORDER = (+X, -X, +Y, -Y, +Z, -Z)`): forward=+Z (index 4), back=-Z (index 5), right=+X (index 0), left=-X (index 1). This keeps “forward” consistent with existing cube-map usage in DA3/VGGT (indices `(0,1,4,5)` are `+X,-X,+Z,-Z`).
-    - [ ] Implement the ordering explicitly (for frames labeled 1..N): [forward-1..N, left-N..1, right-1..N, back-N..1]
-    - [ ] Encode the ordering into filenames so `get_image_names(...).sort()` yields the required sequence. Use a monotonic ordinal prefix, e.g. `ord_{ordinal:06d}_face_{face_idx}_frame_{frame_idx:06d}.png`, where `ordinal` increments in the exact ordering above. Construct COLMAP images with the same names/ids in that ordinal order.
-    - [ ] Compute per-face w2c poses: with panorama `w2c` and `face_rot = cube_face_relative_rotations()[face_idx]` (face->pano), use `R_face = face_rot.T @ R_pano` and `t_face = face_rot.T @ t_pano`. Build `w2c_face` and export COLMAP `qvec = -rotmat2qvec(R_face)` and `tvec = t_face`.
-    - [ ] Create a single COLMAP `Camera` entry (SIMPLE_PINHOLE) with `width=height=face_size`, `params=[focal, cx, cy]` using `cx=cy=0.5*(face_size-1)`, and re-use its `camera_id` for all images to match otf-nvs expectation of a single camera.
-    - [ ] Compute focal length from the cube-face size (FOV 90): `focal = 0.5 * (face_size - 1)`. Pass it to otf-nvs with `--init_focal --fix_focal` and also embed it in the COLMAP camera params.
-    - [ ] Run otf-nvs with `uv run` and only the minimal required args: `-s`, `-m`, `--use_colmap_poses`, `--init_focal`, `--fix_focal`.
-    - [ ] Rely on otf-nvs `metadata.json` in `<scene-id>/splat` for metrics; ensure the wrapper does not delete it and logs its path.
+    - [x] Reuse dataset builders from `evaluate_poses.py` with `SceneSampleLazy` to avoid loading full sequences.
+    - [x] Read `poses/metrics.pt` and use `dataset_stride` to configure the dataset; assert `len(scene) == sequence_length`.
+    - [x] Assert `sequence_length >= 6` and fail fast otherwise.
+    - [x] Stage data in `/dev/shm` via a helper similar to `_temporary_directory` in `da3_perspective_transform.py`.
+    - [x] Project equirect frames using `OTCProjector(face_size=..., alpha=1e-9)`, keep faces `(0, 1, 4, 5)`, and compute `rgb_faces = rgb_faces * alpha_faces` once after projection.
+    - [x] Perform projection + PNG writing in batches (similar to `Da3PerspectiveTransform._write_image_sequence`) to avoid holding all frames/faces in RAM/GPU at once.
+    - [x] Define the face mapping explicitly using `OTCProjector`/`cube_face_relative_rotations` order (`_FACE_ORDER = (+X, -X, +Y, -Y, +Z, -Z)`): forward=+Z (index 4), back=-Z (index 5), right=+X (index 0), left=-X (index 1). This keeps “forward” consistent with existing cube-map usage in DA3/VGGT (indices `(0,1,4,5)` are `+X,-X,+Z,-Z`).
+    - [x] Implement the ordering explicitly (for frames labeled 1..N): [forward-1..N, left-N..1, right-1..N, back-N..1]
+    - [x] Encode the ordering into filenames so `get_image_names(...).sort()` yields the required sequence. Use a monotonic ordinal prefix, e.g. `ord_{ordinal:06d}_face_{face_idx}_frame_{frame_idx:06d}.png`, where `ordinal` increments in the exact ordering above. Construct COLMAP images with the same names/ids in that ordinal order.
+    - [x] Compute per-face w2c poses: with panorama `w2c` and `face_rot = cube_face_relative_rotations()[face_idx]` (face->pano), use `R_face = face_rot.T @ R_pano` and `t_face = face_rot.T @ t_pano`. Build `w2c_face` and export COLMAP `qvec = -rotmat2qvec(R_face)` and `tvec = t_face`.
+    - [x] Create a single COLMAP `Camera` entry (SIMPLE_PINHOLE) with `width=height=face_size`, `params=[focal, cx, cy]` using `cx=cy=0.5*(face_size-1)`, and re-use its `camera_id` for all images to match otf-nvs expectation of a single camera.
+    - [x] Compute focal length from the cube-face size (FOV 90): `focal = 0.5 * (face_size - 1)`. Pass it to otf-nvs with `--init_focal --fix_focal` and also embed it in the COLMAP camera params.
+    - [x] Run otf-nvs with `uv run` and only the minimal required args: `-s`, `-m`, `--use_colmap_poses`, `--init_focal`, `--fix_focal`.
+    - [x] Rely on otf-nvs `metadata.json` in `<scene-id>/splat` for metrics; ensure the wrapper does not delete it and logs its path.
     - [ ] Verify the changes behave as intended through a dry run or minimal invocation if feasible.
 - [ ] Append to the plan.
     - [ ] Update the plan if new information or issues arise.

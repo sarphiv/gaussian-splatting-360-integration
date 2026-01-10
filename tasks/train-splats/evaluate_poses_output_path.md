@@ -25,13 +25,13 @@ Update `src/splat_init/evaluate_poses.py` to write outputs under `args.output_di
 - [x] Collect necessary information.
     - [x] Locate `evaluate_poses.py` output write calls and search for any readers.
     - [x] Identify `investigations/threesixty_explorer.py` path usage.
-- [ ] Formulate overall approach to solve the task.
-    - [ ] Change the output directory from `args.output_dir/<scene-id>` to `args.output_dir/<scene-id>/poses`.
-    - [ ] Update `threesixty_explorer.py` to read from `pred_scene_path / "poses"` while keeping the rest of the logic intact.
-    - [ ] Verify the new directory structure is created before writing `model_output.pt` and `metrics.pt`.
-- [ ] Append to the plan.
-    - [ ] Update the plan if new information or issues arise.
-    - [ ] Update assumptions and questions if necessary.
+- [x] Formulate overall approach to solve the task.
+    - [x] Change the output directory from `args.output_dir/<scene-id>` to `args.output_dir/<scene-id>/poses`.
+    - [x] Update `threesixty_explorer.py` to read from `pred_scene_path / "poses"` while keeping the rest of the logic intact.
+    - [x] Verify the new directory structure is created before writing `model_output.pt` and `metrics.pt`.
+- [x] Append to the plan.
+    - [x] Update the plan if new information or issues arise.
+    - [x] Update assumptions and questions if necessary.
 
 
 # Assumptions

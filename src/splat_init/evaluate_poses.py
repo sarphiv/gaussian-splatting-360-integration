@@ -12,6 +12,7 @@ from splat_init.data.datamodule_360 import SceneSampleLazy
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset
 from splat_init.data.stanford_2d_3d import Stanford2d3dDataset
 from splat_init.models.da3_perspective_transform import Da3PerspectiveTransform
+from splat_init.models.ground_truth import GroundTruthPose
 from splat_init.models.pycolmap_perspective_transform import PycolmapPerspectiveTransform
 from splat_init.models.sequence_chunker import SequenceChunker
 from splat_init.models.vggt_perspective_transform import VggtPerspectiveTransform
@@ -118,13 +119,17 @@ def _build_dataset(args: Args) -> ThreeSixtyLocDataset[SceneSampleLazy] | Stanfo
         raise ValueError(f"Unknown dataset: {args.data.dataset_name}")
 
 
-def _build_model(args: Args) -> SequenceChunker:
+def _build_model(
+    args: Args,
+    dataset: ThreeSixtyLocDataset[SceneSampleLazy] | Stanford2d3dDataset[SceneSampleLazy],
+) -> SequenceChunker:
     models = {
         "vggt_perspective_transform": VggtPerspectiveTransform,
         "vggt_naive_equirectangular": VggtNaiveEquirectangular,
         "vipe_panorama": lambda: VipePanorama(fps=args.data.dataset_fps),
         "da3_perspective_transform": Da3PerspectiveTransform,
         "pycolmap_perspective_transform": PycolmapPerspectiveTransform,
+        "ground_truth": lambda: GroundTruthPose(dataset),
     }
 
     return SequenceChunker(
@@ -146,7 +151,7 @@ def main() -> None:
 
     dtype = th.bfloat16 if args.model.dtype == "bfloat16" else th.float32
     device = "cuda" if th.cuda.is_available() else "cpu"
-    model = _build_model(args).eval().to(device=device, dtype=dtype)
+    model = _build_model(args, dataset).eval().to(device=device, dtype=dtype)
 
     for scene_idx, scene in (pbar := tqdm(enumerate(dataset), total=len(dataset), desc="Evaluating scenes")):
         # Metrics start
@@ -174,7 +179,7 @@ def main() -> None:
         )
 
         # Store
-        output_dir = args.output_dir / scene.id
+        output_dir = args.output_dir / scene.id / "poses"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         th.save({"poses": poses_cpu}, output_dir / "model_output.pt")

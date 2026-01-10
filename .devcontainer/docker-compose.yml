@@ -6,7 +6,19 @@ services:
       args:
         TORCH_CUDA_ARCH_LIST:
     shm_size: '16gb'
+    gpus: all
+    runtime: nvidia
     env_file: .env
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XAUTHORITY=/tmp/.Xauthority
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - WGPU_BACKEND=vulkan
+      - WGPU_POWER_PREFERENCE=high-performance
+      - VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/nvidia_icd.x86_64.json
+      - RUST_LOG=info,wgpu_hal::vulkan::conv=error
     volumes:
       - devcontainer_venv:/workspace/.venv/
       - devcontainer_uv_cache:/home/ubuntu/.cache/uv
@@ -14,6 +26,10 @@ services:
       - "..:/workspace:rw"
       - "${DATASET_ROOT}:${DATASET_ROOT}:r"
       - "~/.codex/:/home/ubuntu/.codex/:rw"
+      - "/tmp/.X11-unix:/tmp/.X11-unix:rw"
+      - "~/.Xauthority:/tmp/.Xauthority:ro"
+      - "/usr/share/vulkan/icd.d/nvidia_icd.x86_64.json:/usr/share/vulkan/icd.d/nvidia_icd.x86_64.json:ro"
+      - "/usr/lib64/libGLX_nvidia.so.0:/usr/lib64/libGLX_nvidia.so.0:ro"
 
 volumes:
   devcontainer_venv:

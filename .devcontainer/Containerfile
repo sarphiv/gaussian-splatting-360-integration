@@ -19,6 +19,7 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     '^libxcb.*-dev' \
     libx11-xcb-dev \
     libglu1-mesa-dev \
+    # mesa-vulkan-drivers \
     libgl1 \
     libxrender-dev \
     libxi-dev \
