@@ -11,3 +11,9 @@
 [submodule "vendor/otf-nvs"]
 	path = vendor/otf-nvs
 	url = https://github.com/graphdeco-inria/on-the-fly-nvs.git
+[submodule "vendor/vcpkg"]
+	path = vendor/vcpkg
+	url = https://github.com/microsoft/vcpkg.git
+[submodule "vendor/lichtfeld-studio"]
+	path = vendor/lichtfeld-studio
+	url = https://github.com/MrNeRF/LichtFeld-Studio

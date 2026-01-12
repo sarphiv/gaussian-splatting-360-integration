@@ -227,3 +227,6 @@ __marimo__/
 
 # Submodules
 /vendor/
+
+# Display
+/imgui.ini

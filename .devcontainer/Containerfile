@@ -10,6 +10,7 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     git \
     sudo \
     wget \
+    zip \
     ripgrep \
     nvtop \
     python$(cat .python-version)-dev \
@@ -19,7 +20,6 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     '^libxcb.*-dev' \
     libx11-xcb-dev \
     libglu1-mesa-dev \
-    # mesa-vulkan-drivers \
     libgl1 \
     libxrender-dev \
     libxi-dev \
@@ -28,8 +28,15 @@ RUN --mount=target=/var/lib/apt/lists,type=cache,sharing=locked \
     libgtk-3-dev \
     zlib1g-dev \
     libeigen3-dev \
+    libxinerama-dev \
+    libxcursor-dev \
+    linux-libc-dev \
+    xorg-dev \
+    pkg-config \
     build-essential \
-    ninja-build
+    ninja-build \
+    g++-14 \
+    gcc-14
 
 
 # Set up non-root user
@@ -49,7 +56,7 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -p uv
 
 
-# Set up Python environment
+# Set up environments
 ENV XDG_RUNTIME_DIR=/tmp
 ENV PYTHONUNBUFFERED=True
 ENV UV_COMPILE_BYTECODE=1
@@ -57,7 +64,26 @@ ENV UV_LINK_MODE=copy
 ARG TORCH_CUDA_ARCH_LIST
 ENV TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
 ENV PATH="/workspace/.venv/bin:$PATH"
+ENV VCPKG_ROOT="/workspace/vendor/vcpkg"
 COPY vendor/ vendor/
+RUN sudo chown -R ubuntu:ubuntu /workspace/vendor
+# C++ environment
+RUN --mount=target=/home/ubuntu/.cache/vcpkg,uid=1000,gid=1000,type=cache,sharing=locked \
+    # vcpkg
+    sudo ./vendor/vcpkg/bootstrap-vcpkg.sh -disableMetrics && \
+    # cmake
+    mkdir /tmp/cmake_install && cd /tmp/cmake_install && \
+    wget https://github.com/Kitware/CMake/releases/download/v4.2.1/cmake-4.2.1-Linux-x86_64.sh && \
+    chmod +x cmake-4.2.1-Linux-x86_64.sh && \
+    sudo ./cmake-4.2.1-Linux-x86_64.sh --skip-license --prefix=/usr/local && \
+    cd /workspace && rm -rf /tmp/cmake_install
+RUN --mount=target=/home/ubuntu/.cache/vcpkg,uid=1000,gid=1000,type=cache,sharing=locked \
+    # LichtFeld Studio
+    cd vendor/lichtfeld-studio && \
+    cmake -B build -DCMAKE_CXX_COMPILER=/usr/bin/g++-14 -DCMAKE_BUILD_TYPE=Release -G Ninja && \
+    cmake --build build -- -j$(nproc) && \
+    cd ..
+# Python environment
 RUN --mount=target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,type=cache,sharing=locked \
     --mount=target=/home/ubuntu/.cache/torch/hub,uid=1000,gid=1000,type=cache,sharing=locked \
     --mount=source=.python-version,target=.python-version,type=bind \
@@ -66,7 +92,6 @@ RUN --mount=target=/home/ubuntu/.cache/uv,uid=1000,gid=1000,type=cache,sharing=l
     --mount=source=README.md,target=README.md,type=bind \
     --mount=source=src,target=src,type=bind \
     sudo chown ubuntu:ubuntu /home/ubuntu/.cache && \
-    sudo chown -R ubuntu:ubuntu vendor && \
     uv sync --frozen && \
     uv run vipe --version # Trigger build of everything and ViPE custom build
 

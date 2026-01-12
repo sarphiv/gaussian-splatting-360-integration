@@ -217,7 +217,7 @@ class PycolmapPerspectiveTransform(LightningModule):
                 str(image_dir),
                 image_names=image_names,
                 camera_mode=pycolmap.CameraMode.SINGLE,
-                camera_model="PINHOLE",
+                camera_model="RADIAL",
                 reader_options=reader_options,
                 extraction_options=extraction_options,
                 device=device,

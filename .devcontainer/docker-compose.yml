@@ -24,6 +24,7 @@ services:
       - devcontainer_uv_cache:/home/ubuntu/.cache/uv
       - devcontainer_torch_cache:/home/ubuntu/.cache/torch/
       - "..:/workspace:rw"
+      - "/workspace/vendor/lichtfeld-studio/build"
       - "${DATASET_ROOT}:${DATASET_ROOT}:r"
       - "~/.codex/:/home/ubuntu/.codex/:rw"
       - "/tmp/.X11-unix:/tmp/.X11-unix:rw"
