@@ -41,25 +41,29 @@ Add a utility function under `src/utilities/` that converts per-image depth + co
 - [x] Collect necessary information.
     - [x] Confirm pose conventions are world-to-camera in datasets/models.
     - [x] Note OTCProjector equirectangular mapping (lon/lat) to derive rays.
-- [ ] Formulate overall approach to solve the task.
-    - [ ] Define equirectangular pixel-to-ray mapping:
+- [x] Formulate overall approach to solve the task.
+    - [x] Define equirectangular pixel-to-ray mapping:
           x_norm = 2*x/(W-1) - 1, y_norm = 2*y/(H-1) - 1,
           lon = pi * x_norm, lat = -0.5*pi * y_norm,
           dir = [sin(lon)*cos(lat), sin(lat), cos(lon)*cos(lat)].
-    - [ ] For each image:
+    - [x] For each image:
           - Build mask from confidence and valid depth.
           - Gather (x,y) indices for valid pixels.
           - Compute per-pixel rays only for selected indices and multiply by depth to get camera-frame points.
           - Transform to world coordinates using pose w2c: if `x_cam = R * x_world + t`, then `x_world = R^T @ (x_cam - t)`.
           - Store `xy` and `xyz` tensors.
-    - [ ] Implement random sampling helper:
+    - [x] Implement random sampling helper:
           - Build valid-depth mask (`depth > 0`, finite).
           - Sample `ceil(sample_ratio * num_valid)` indices without replacement.
           - Use the same ray + world transform logic as `keypoints_from_depth`.
-    - [ ] Handle shape variants (e.g., depth/conf with/without channel dims) by squeezing as needed.
-- [ ] Append to the plan.
-    - [ ] Update the plan if new information or issues arise.
-    - [ ] Update assumptions and questions if necessary.
+    - [x] Handle shape variants (e.g., depth/conf with/without channel dims) by squeezing as needed.
+- [x] Implement keypoint extraction utilities.
+    - [x] Add tensor-shape normalization and per-image flattening helpers.
+    - [x] Compute rays only for selected pixel indices to keep GPU memory low.
+    - [x] Implement confidence-filtered and random-sampling variants.
+- [x] Append to the plan.
+    - [x] Update the plan if new information or issues arise.
+    - [x] Update assumptions and questions if necessary.
 
 
 # Assumptions

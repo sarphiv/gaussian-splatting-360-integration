@@ -39,10 +39,10 @@ Create a new cubemap projector utility as a drop-in replacement for OTCProjector
     - [x] Read `src/utilities/otc_projector.py` for face order and mapping.
     - [x] Identify face index expectations in `train_splats_otf-nvs.py` and models.
     - [x] Note inverse usage requirement from the task description.
-- [ ] Formulate overall approach to solve the task.
-    - [ ] Define face index mapping for booleans:
+- [x] Formulate overall approach to solve the task.
+    - [x] Define face index mapping for booleans:
           +X = right, -X = left, +Y = up, -Y = down, +Z = forward, -Z = back.
-    - [ ] Implement forward sampling that only computes enabled faces in sorted face-index order:
+    - [x] Implement forward sampling that only computes enabled faces in sorted face-index order:
           - Build `u_lin, v_lin` as a meshgrid over `[-1, 1]` for the face size.
           - For each face, build direction vectors using the same formulas as `OTCProjector._dir_for_face`:
                 +X: (x, y, z) = (1, -v, -u)
@@ -54,7 +54,7 @@ Create a new cubemap projector utility as a drop-in replacement for OTCProjector
           - Normalize directions, convert to lon/lat, then to grid coords `(x_norm, y_norm)` as in `OTCProjector` (no tan warp).
           - Use `grid_sample` with `align_corners=True` and `padding_mode="border"` to match existing behavior.
           - Keep grid cached per `(device, dtype)` for speed.
-    - [ ] Implement inverse that samples from enabled faces into an equirectangular grid sized by `output_size=(H, W)` using the same direction conventions as `OTCProjector` (standard cube mapping, no tan warp):
+    - [x] Implement inverse that samples from enabled faces into an equirectangular grid sized by `output_size=(H, W)` using the same direction conventions as `OTCProjector` (standard cube mapping, no tan warp):
           - For each equirect pixel, compute direction:
                 lon = pi * (2*x/(W-1) - 1)
                 lat = -0.5*pi * (2*y/(H-1) - 1)
@@ -70,12 +70,17 @@ Create a new cubemap projector utility as a drop-in replacement for OTCProjector
                 -Z: u = x/z,  v = y/z
           - Convert u/v to grid coords directly (no tangent warp): u_lin = u, v_lin = v.
           - For each enabled face, build a grid and sample using `grid_sample` (`align_corners=True`, `padding_mode="border"`), then mask+accumulate into the equirect output.
-          - Support variable channel counts: each `face_tensor` can be `[B, C, F, F]`; return an equirect tensor `[B, C, H, W]` per input argument.
-    - [ ] Accept variable numbers of face tensors (`[B, C, F, F]`) and return one equirectangular tensor per input, preserving channel count.
-    - [ ] Validate that `inverse` receives the exact number of enabled faces (assert if mismatch).
-- [ ] Append to the plan.
-    - [ ] Update the plan if new information or issues arise.
-    - [ ] Update assumptions and questions if necessary.
+          - Support variable channel counts: each `face_tensor` can be `[B, num_faces, C, F, F]`; return an equirect tensor `[B, C, H, W]` per input argument.
+    - [x] Accept variable numbers of face tensors (`[B, num_faces, C, F, F]`) and return one equirectangular tensor per input, preserving channel count.
+    - [x] Validate that `inverse` receives the exact number of enabled faces (assert if mismatch).
+- [x] Implement the cubemap projector utility.
+    - [x] Add `CubeProjector` with face-enable flags and face-order filtering.
+    - [x] Cache forward and inverse sampling grids by device/dtype.
+    - [x] Mirror OTCProjector forward outputs and depth fallback behavior.
+    - [x] Add inverse mapping with explicit output size and missing-face asserts.
+- [x] Append to the plan.
+    - [x] Update the plan if new information or issues arise.
+    - [x] Update assumptions and questions if necessary.
 
 
 # Assumptions
