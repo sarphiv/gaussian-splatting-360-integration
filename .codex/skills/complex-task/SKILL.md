@@ -27,6 +27,7 @@ Explore the codebase, create subtasks, and refine subtasks. If this skill is inv
 - Minimize conflicts by isolating files or components per subtask.
 - Detail API compatibility between subtasks via function signatures, class names, etc.
 - Provide enough detail so implementers do not need to invoke this skill again.
+- Specify the task in great detail since implementers do not inherit the orchestrator's context.
 - Do not implement or review code. Only gather information and create subtasks.
 - Do not read other task directories in `tasks/`.
 

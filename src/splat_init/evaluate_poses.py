@@ -182,7 +182,7 @@ def main() -> None:
         output_dir = args.output_dir / scene.id / "poses"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        th.save({"poses": poses_cpu}, output_dir / "model_output.pt")
+        th.save(poses_cpu, output_dir / "poses.pt")
         th.save(metrics, output_dir / "metrics.pt")
 
 

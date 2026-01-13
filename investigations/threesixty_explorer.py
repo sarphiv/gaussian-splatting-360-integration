@@ -55,7 +55,7 @@ pred_scene_path = sorted(p for p in PRED_PATH.iterdir() if p.is_dir())[PRED_IDX]
 pred_poses_path = pred_scene_path / "poses"
 pred_metrics: dict[str, str | float | int] = th.load(pred_poses_path / "metrics.pt", map_location="cpu")
 scene_idx = int(pred_metrics["scene_idx"])
-pred_poses_w2c = cast(th.Tensor, th.load(pred_poses_path / "model_output.pt", map_location="cpu")["poses"])
+pred_poses_w2c = cast(th.Tensor, th.load(pred_poses_path / "poses.pt", map_location="cpu"))
 
 # NOTE: Depth is required, so many scenes are filtered out
 dataset_reconstruct = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=RECONSTRUCT_STRIDE, worker_count=DATASET_WORKERS)
