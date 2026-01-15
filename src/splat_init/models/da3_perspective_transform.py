@@ -286,8 +286,7 @@ class Da3PerspectiveTransform(LightningModule):
             conf_equi_cpu.unsqueeze(0),
             image_shape=tuple(images.shape[-2:]), # type: ignore[reportArgumentType]
             confidence_threshold=10.0,
-            # sample_ratio=0.01
-            sample_ratio=0.1
+            sample_ratio=0.01
         )
 
         return merged.unsqueeze(0).to(images), keypoints, {

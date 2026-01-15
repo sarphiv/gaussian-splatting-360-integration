@@ -43,7 +43,8 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2026-01-22T17:30:28") # DA3 2
 # PRED_PATH = Path("outputs/2026-01-22T17:45:12") # DA3 8
 # PRED_PATH = Path("outputs/2026-01-22T19:07:16") # COLMAP 8
-PRED_PATH = Path("outputs/2026-01-22T19:38:57") # COLMAP 8
+# PRED_PATH = Path("outputs/2026-01-22T19:38:57") # COLMAP 8
+PRED_PATH = Path("outputs/2026-01-23T10:44:31") # COLMAP 8
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
