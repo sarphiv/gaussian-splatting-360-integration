@@ -13,13 +13,16 @@ from pathlib import Path
 
 import torch as th
 from lightning.pytorch import LightningModule
-from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig, STEP_OUTPUT
 from vggt.models.vggt import VGGT
 
-from configs.constants import TRAIN_PREFIX, VALIDATION_PREFIX, VGGT_TARGET_SIZE
-from splat_init.data.datamodule_360 import SceneSample
-from utilities.otc_projector import OTCProjector, cube_face_relative_rotations
+from configs.constants import VGGT_TARGET_SIZE
+from utilities.cube_projector import CubeProjector
+from utilities.keypoints import keypoints_from_depth
+from utilities.otc_projector import cube_face_relative_rotations
 from utilities.pose import mat_to_quat_xyzw, mean_quaternion_markley, pose_to_mat, quat_to_mat_xyzw
+
+FACE_INDICES = (0, 1, 4, 5)
+
 
 class VggtPerspectiveTransform(LightningModule):
     """LightningModule wrapping VGGT for perspective face supervision."""
@@ -34,19 +37,19 @@ class VggtPerspectiveTransform(LightningModule):
 
         self.model = VGGT.from_pretrained(
             model_url,
-            enable_point=False,
+            enable_point=False, # NOTE: Using depth head to get keypoints instead, similar to other models (except Colmap)
             enable_track=False,
         )
 
         self.output_dir = output_dir
 
-        self._projector = OTCProjector(face_size=VGGT_TARGET_SIZE, alpha=1e-9)
+        self._projector = CubeProjector(face_size=VGGT_TARGET_SIZE, face_up=False, face_down=False)
         face_weights = th.tensor([0.25, 0.25, 0.25, 0.25], dtype=cast(th.dtype, self.dtype))
         self.face_weights: th.Tensor
         self.register_buffer("face_weights", face_weights, persistent=False)
         
         self._face_rots: th.Tensor
-        self.register_buffer("_face_rots", cube_face_relative_rotations()[[0, 1, 4, 5]], persistent=False)
+        self.register_buffer("_face_rots", cube_face_relative_rotations()[list(FACE_INDICES)], persistent=False)
 
         self.depth_frames_chunk_size = 2
 
@@ -57,18 +60,11 @@ class VggtPerspectiveTransform(LightningModule):
         """Select the cubemap faces used by VGGT and pack them into a batch tensor."""
 
         assert rgb.shape[:2] == depth.shape[:2] == alpha.shape[:2], "RGB/depth/alpha faces must align"
-
-        face_indices = [0, 1, 4, 5]
-        rgb = rgb[:, face_indices, ...]
-        depth = depth[:, face_indices, ...]
-        alpha = alpha[:, face_indices, ...]
-
-        assert rgb.shape[:2] == depth.shape[:2] == alpha.shape[:2], "Filtered faces must align"
+        assert rgb.shape[1] == len(self.face_weights), "Expected four cubemap faces"
 
         views = rgb.shape[0]
         faces = rgb.reshape(1, views * len(self.face_weights), 3, VGGT_TARGET_SIZE, VGGT_TARGET_SIZE)
-        if faces.is_cuda:
-            faces = faces.to(dtype=th.bfloat16)
+        faces = faces.to(dtype=th.bfloat16) if faces.is_cuda else faces
         return faces
 
     def _forward_vggt(self, images: th.Tensor) -> dict[str, th.Tensor]:
@@ -92,13 +88,13 @@ class VggtPerspectiveTransform(LightningModule):
                 patch_start_idx=patch_start_idx,
                 frames_chunk_size=self.depth_frames_chunk_size,
             )
-            del depth_conf
 
         del token_sequences
 
         pose = pose.float()
-        depth = depth.float()
-        return {"pose_enc": pose, "depth": depth}
+        depth = depth.float().squeeze(-1).unsqueeze(2)
+        depth_conf = depth_conf.float().unsqueeze(2)
+        return {"pose_enc": pose, "depth": depth, "depth_conf": depth_conf}
 
     # ------------------------------------------------------------------
     # Pose utilities
@@ -124,7 +120,9 @@ class VggtPerspectiveTransform(LightningModule):
     # Core logic
     # ------------------------------------------------------------------
 
-    def forward(self, images: th.Tensor) -> tuple[th.Tensor, None, dict[str, th.Tensor]]:
+    def forward(
+        self, images: th.Tensor
+    ) -> tuple[th.Tensor, list[tuple[th.Tensor, th.Tensor]] | None, dict[str, th.Tensor]]:
         """Project panoramas, run VGGT, and merge face poses into camera transforms."""
 
         assert images.dim() == 5, "Expected images shaped [B, S, C, H, W]"
@@ -133,31 +131,29 @@ class VggtPerspectiveTransform(LightningModule):
         assert views > 1, "Need at least two views per sample"
         assert batch == 1, "Batch size > 1 not supported"
 
-        images = images.to(device=self.device, dtype=cast(th.dtype, self.dtype))
-
-        if channels == 3:
-            alpha = th.ones((batch, views, 1, height, width), device=images.device, dtype=images.dtype)
-            rgba = th.cat((images, alpha), dim=2)
-        else:
-            rgba = images
-
-        flat_rgba = rgba.reshape(batch * views, 4, height, width)
-
+        flat_rgba = images.reshape(batch * views, 4, height, width).to(device=self.device, dtype=cast(th.dtype, self.dtype))
         rgb_faces, alpha_faces, depth_faces = self._projector(flat_rgba, depth=None)
         rgb_faces = rgb_faces * alpha_faces
         depth_faces = depth_faces * alpha_faces
 
         vggt_input = self._prepare_vggt_input(
-            rgb_faces,  # [V, 6, 3, F, F]
-            depth_faces,  # [V, 6, 1, F, F]
-            alpha_faces,  # [V, 6, 1, F, F]
+            rgb_faces,  # [V, 4, 3, F, F]
+            depth_faces,  # [V, 4, 1, F, F]
+            alpha_faces,  # [V, 4, 1, F, F]
         )
 
         preds = self._forward_vggt(vggt_input)
         num_faces = len(self.face_weights)
 
-        pose_faces = preds["pose_enc"][0].view(views, num_faces, -1).to(self.device, dtype=cast(th.dtype, self.dtype))
-        depth_pred_faces = preds["depth"][0].view(views, num_faces, VGGT_TARGET_SIZE, VGGT_TARGET_SIZE).to(self.device, dtype=cast(th.dtype, self.dtype))
+        pose_faces = preds["pose_enc"][0] \
+            .view(views, num_faces, -1) \
+            .to(images)
+        depth_pred_faces = preds["depth"][0] \
+            .view(views, num_faces, 1, VGGT_TARGET_SIZE, VGGT_TARGET_SIZE) \
+            .to(images)
+        depth_conf_faces = preds["depth_conf"][0] \
+            .view(views, num_faces, 1, VGGT_TARGET_SIZE, VGGT_TARGET_SIZE) \
+            .to(images)
 
         quat_faces, translation_faces, _ = self._from_pose_encoding(pose_faces)
         rotation_faces = quat_to_mat_xyzw(quat_faces)
@@ -176,12 +172,30 @@ class VggtPerspectiveTransform(LightningModule):
 
         mats_pred_rel = pose_to_mat(rotation_rel, translation_rel)
 
-        return mats_pred_rel.unsqueeze(0).to(images), None, {
-            "depth_faces": depth_pred_faces.unsqueeze(0).to(images),
-            "pose_faces": pose_faces.unsqueeze(0).to(images),
-            "centers_rel": centers_rel.unsqueeze(0).to(images),
-            "rotation_merged": rotation_merged.unsqueeze(0).to(images),
-            "translation_merged": translation_merged.unsqueeze(0).to(images),
+        depth_equi, conf_equi = self._projector.inverse(
+            depth_pred_faces.to(device=self.device, dtype=cast(th.dtype, self.dtype)),
+            depth_conf_faces.to(device=self.device, dtype=cast(th.dtype, self.dtype)),
+            output_size=(height, width)
+        )
+        depth_equi, conf_equi = depth_equi.to(images), conf_equi.to(images)
+
+        keypoints = keypoints_from_depth(
+            mats_pred_rel.unsqueeze(0),
+            depth_equi.unsqueeze(0),
+            conf_equi.unsqueeze(0),
+            image_shape=tuple(images.shape[-2:]), # type: ignore[reportArgumentType]
+            confidence_threshold=2.4,
+            sample_ratio=0.01
+        )
+
+        depth_pred_faces_out = depth_pred_faces.squeeze(2)
+
+        return mats_pred_rel.unsqueeze(0), keypoints, {
+            "depth_faces": depth_pred_faces_out.unsqueeze(0),
+            "pose_faces": pose_faces.unsqueeze(0),
+            "centers_rel": centers_rel.unsqueeze(0),
+            "rotation_merged": rotation_merged.unsqueeze(0),
+            "translation_merged": translation_merged.unsqueeze(0),
         }
 
     def configure_optimizers(self):

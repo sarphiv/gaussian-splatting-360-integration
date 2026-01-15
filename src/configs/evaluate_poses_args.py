@@ -16,11 +16,11 @@ class ModelArgs:
         "da3_perspective_transform",
         "pycolmap_perspective_transform",
         "ground_truth",
-    ] = "pycolmap_perspective_transform"
+    ] = "vggt_perspective_transform"
     dtype: Literal["float32", "bfloat16"] = "float32"
 
-    # Naive: (40, 15), Persp: (7, 4), ViPE: (32, 8), DA3: None, Pycolmap: None, GT: None
-    chunker: tuple[int, int] | None = None  # (size, overlap)
+    # Naive: (40, 15), Persp: (14, 6), ViPE: (32, 8), DA3: None, Pycolmap: None, GT: None
+    chunker: tuple[int, int] | None = (14, 6)  # (size, overlap)
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class DataArgs:
     dataset_dir: Path = Path(environ.get("DATASET_360_LOC_ROOT", ""))
     dataset_stride: int = 8
     dataset_fps: float = 2 / dataset_stride
-    dataset_image_size: tuple[int, int] = (1538, 768) # Width x Height
+    dataset_image_size: tuple[int, int] = (1538, 768) # Width x Height to resize to
 
     dataloader_workers: int = 8
 
