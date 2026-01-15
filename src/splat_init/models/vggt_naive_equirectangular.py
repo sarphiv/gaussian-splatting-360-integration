@@ -10,28 +10,17 @@ baseline while also dumping position traces for downstream analysis.
 from __future__ import annotations
 
 from typing import cast
-from dataclasses import dataclass
 from pathlib import Path
 
 import torch as th
 import torch.nn.functional as F
 from lightning.pytorch import LightningModule
-from lightning.pytorch.utilities.types import OptimizerLRSchedulerConfig, STEP_OUTPUT
 from vggt.models.vggt import VGGT
 
-from configs.constants import TRAIN_PREFIX, VALIDATION_PREFIX, VGGT_TARGET_SIZE
-from splat_init.data.datamodule_360 import SceneSample
-from utilities.pose import camera_centers, quat_to_mat_xyzw
+from configs.constants import VGGT_TARGET_SIZE
+from utilities.keypoints import keypoints_from_depth
+from utilities.pose import quat_to_mat_xyzw
 
-
-@dataclass
-class _ProcessedSample:
-    """Container holding tensors that share the same spatial resolution."""
-
-    rgb: th.Tensor    # [S, 3, H, W]
-    depth: th.Tensor  # [S, 1, H, W]
-    alpha: th.Tensor  # [S, 1, H, W]
-    pose: th.Tensor   # [S, 4, 4]
 
 
 class VggtNaiveEquirectangular(LightningModule):
@@ -39,34 +28,20 @@ class VggtNaiveEquirectangular(LightningModule):
 
     def __init__(
         self,
-        model_url: Path = Path("facebook/VGGT-1B"),
-        output_dir: Path | None = None
+        model_url: Path = Path("facebook/VGGT-1B")
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
 
         self.model = VGGT.from_pretrained(
             model_url,
-            enable_point=False,
+            enable_point=False, # NOTE: Using depth head to get keypoints instead, similar to other models (except Colmap)
             enable_track=False,
         )
-        self.output_dir = output_dir
 
     # ------------------------------------------------------------------
     # Preprocessing
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _resize_height(height: int, width: int, target_width: int) -> int:
-        """Return the height after resizing the width to ``target_width``.
-
-        VGGT's loader ensures dimensions remain divisible by 14; the same rule is
-        applied here to mimic its behaviour.
-        """
-
-        scale = target_width / float(width)
-        new_height = max(14, round(height * scale / 14.0) * 14)
-        return int(new_height)
 
     @staticmethod
     def _center_crop_height(tensor: th.Tensor, target_height: int) -> th.Tensor:
@@ -79,7 +54,7 @@ class VggtNaiveEquirectangular(LightningModule):
         bottom = top + target_height
         return tensor[..., top:bottom, :]
 
-    def _preprocess_rgba_tensor(self, rgba: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
+    def _preprocess_rgba_tensor(self, rgba: th.Tensor) -> th.Tensor:
         """Apply alpha masking, resizing, and cropping to RGBA tensors.
 
         Accepts tensors shaped ``[..., 4, H, W]`` where leading dimensions capture
@@ -90,59 +65,33 @@ class VggtNaiveEquirectangular(LightningModule):
 
         *leading, _, height, width = rgba.shape
         leading_shape = tuple(leading)
-        rgba = rgba.to(device=self.device, dtype=cast(th.dtype, self.dtype))
 
-        rgb = rgba[..., :3, :, :]
-        alpha = rgba[..., 3:4, :, :]
-        rgb = rgb * alpha
+        scale = VGGT_TARGET_SIZE / float(width)
+        new_height = int(max(14, round(height * scale / 14.0) * 14))
 
-        new_height = self._resize_height(height, width, VGGT_TARGET_SIZE)
+        rgb = rgba[..., :3, :, :] * rgba[..., 3:4, :, :]
 
         rgb = rgb.reshape(-1, 3, height, width)
-        alpha = alpha.reshape(-1, 1, height, width)
-
         rgb = F.interpolate(rgb, size=(new_height, VGGT_TARGET_SIZE), mode="bilinear", align_corners=False)
-        alpha = F.interpolate(alpha, size=(new_height, VGGT_TARGET_SIZE), mode="bilinear", align_corners=False)
-
         rgb = self._center_crop_height(rgb, VGGT_TARGET_SIZE)
-        alpha = self._center_crop_height(alpha, VGGT_TARGET_SIZE)
-
         rgb = rgb.clamp(0.0, 1.0)
-        alpha = alpha.clamp(0.0, 1.0)
 
         proc_height, proc_width = rgb.shape[-2:]
-        rgb = rgb.reshape(*leading_shape, 3, proc_height, proc_width)
-        alpha = alpha.reshape(*leading_shape, 1, proc_height, proc_width)
-        return rgb, alpha
+        return rgb.reshape(*leading_shape, 3, proc_height, proc_width)
 
     # ------------------------------------------------------------------
     # Core logic
     # ------------------------------------------------------------------
-
-    def _prepare_forward_inputs(self, images: th.Tensor) -> th.Tensor:
-        """Normalize raw RGBA batches to the format expected by VGGT."""
-
-        assert images.dim() == 5, "Expected [B, S, C, H, W] input"
-        _, _, channels, height, width = images.shape
-        assert channels in (3, 4), "Input must have three (RGB) or four (RGBA) channels"
-
-        if channels == 4:
-            rgb, _ = self._preprocess_rgba_tensor(images)
-        else:
-            assert height == VGGT_TARGET_SIZE and width == VGGT_TARGET_SIZE, "RGB inputs must already be preprocessed"
-            rgb = images.to(device=self.device, dtype=cast(th.dtype, self.dtype)).clamp(0.0, 1.0)
-
-        return rgb
-
     def _gather_predictions(
         self,
         preds: dict[str, th.Tensor]
-    ) -> tuple[th.Tensor, th.Tensor]:
+    ) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
         """Slice VGGT outputs to match the number of views."""
 
         pose = preds["pose_enc"]  # [B, S, 9]
         depth = preds["depth"].squeeze(-1).unsqueeze(2)  # [B, S, 1, H, W]
-        return pose, depth
+        depth_conf = preds["depth_conf"].unsqueeze(2)  # [B, S, 1, H, W]
+        return pose, depth, depth_conf
 
     @staticmethod
     def _from_pose_encoding(pose_enc: th.Tensor) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
@@ -165,16 +114,25 @@ class VggtNaiveEquirectangular(LightningModule):
         mats[..., 3, 3] = 1.0
         return mats
 
-    def forward(self, images: th.Tensor) -> tuple[th.Tensor, th.Tensor, dict[str, th.Tensor]]:
-        """Forward pass returning pose matrices and depth predictions."""
+    def forward(
+        self, images: th.Tensor
+    ) -> tuple[th.Tensor, list[tuple[th.Tensor, th.Tensor]] | None, dict[str, th.Tensor]]:
+        """Forward pass returning pose matrices and depth-derived keypoints."""
 
-        rgb_inputs = self._prepare_forward_inputs(images)
+        preds = self.model(self._preprocess_rgba_tensor(images).to(device=self.device, dtype=cast(th.dtype, self.dtype)))
+        pose_enc, depth_pred, depth_conf = self._gather_predictions(preds)
+        pose_mats_pred = self._pose_matrices_from_encoding(pose_enc).to(images)
 
-        preds = self.model(rgb_inputs)
-        pose_enc, depth_pred = self._gather_predictions(preds)
-        pose_mats_pred = self._pose_matrices_from_encoding(pose_enc)
+        keypoints = keypoints_from_depth(
+            pose_mats_pred,
+            depth_pred.to(images),
+            depth_conf.to(images),
+            image_shape=tuple(images.shape[-2:]), # type: ignore[reportArgumentType]
+            confidence_threshold=1.0,
+            sample_ratio=0.0001
+        )
 
-        return pose_mats_pred.to(images), depth_pred.to(images), {}
+        return pose_mats_pred, keypoints, {}
 
     def configure_optimizers(self):
         return []

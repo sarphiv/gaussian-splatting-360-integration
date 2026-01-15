@@ -16,11 +16,11 @@ class ModelArgs:
         "da3_perspective_transform",
         "pycolmap_perspective_transform",
         "ground_truth",
-    ] = "vggt_perspective_transform"
+    ] = "vggt_naive_equirectangular"
     dtype: Literal["float32", "bfloat16"] = "float32"
 
-    # Naive: (40, 15), Persp: (14, 6), ViPE: (32, 8), DA3: None, Pycolmap: None, GT: None
-    chunker: tuple[int, int] | None = (14, 6)  # (size, overlap)
+    # Naive: (96, 16), Persp: (14, 6), ViPE: (32, 8), DA3: None, Pycolmap: None, GT: None
+    chunker: tuple[int, int] | None = (96, 16)  # (size, overlap)
 
 
 @dataclass(frozen=True)

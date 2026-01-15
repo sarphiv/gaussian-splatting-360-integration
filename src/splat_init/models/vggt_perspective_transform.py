@@ -29,8 +29,7 @@ class VggtPerspectiveTransform(LightningModule):
 
     def __init__(
         self,
-        model_url: Path = Path("facebook/VGGT-1B"),
-        output_dir: Path | None = None
+        model_url: Path = Path("facebook/VGGT-1B")
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -40,8 +39,6 @@ class VggtPerspectiveTransform(LightningModule):
             enable_point=False, # NOTE: Using depth head to get keypoints instead, similar to other models (except Colmap)
             enable_track=False,
         )
-
-        self.output_dir = output_dir
 
         self._projector = CubeProjector(face_size=VGGT_TARGET_SIZE, face_up=False, face_down=False)
         face_weights = th.tensor([0.25, 0.25, 0.25, 0.25], dtype=cast(th.dtype, self.dtype))
