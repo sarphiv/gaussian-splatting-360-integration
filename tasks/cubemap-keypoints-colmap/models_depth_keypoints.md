@@ -34,35 +34,35 @@ Update the depth-capable models to return keypoints as the second output item, u
     - [x] Note VGGT depth/conf shapes (`[B,S,1,H,W]`), and current depth discard in `vggt_perspective_transform.py`.
     - [x] Note ViPE optional depth output (`return_depth` flag).
     - [x] Inspect DA3 streaming outputs: `DA3_Streaming.save_depth_conf_result` writes per-frame `results_output/frame_XXXX.npz` with `depth` and `conf` when `save_depth_conf_result=True`.
-- [ ] Formulate overall approach to solve the task.
-    - [ ] **VggtNaiveEquirectangular**:
-        - Capture `depth_conf` from VGGT predictions.
-        - Update `_gather_predictions` (or a new helper) to return `depth_conf` alongside `depth`.
-        - Use helper on the original input images; let helper resize depth/conf to input resolution.
-        - Use confidence threshold `0.9`.
-        - Return `poses, keypoints, {}` on `.to(images)` device.
-    - [ ] **VggtPerspectiveTransform**:
-        - Keep `depth_conf` from `depth_head`.
-        - Use new `CubeProjector` with enabled faces (right, left, forward, back) to inverse-project `depth_pred_faces` and `depth_conf_faces` to equirectangular size (`output_size=(H,W)`).
-        - Use helper to compute keypoints in equirectangular pixel coords.
-        - Use confidence threshold `0.9`.
-        - Face indices are `[0, 1, 4, 5]` (same as existing `FACE_INDICES` constants) and must match `CubeProjector` enabled faces order.
-    - [ ] **VipePanorama**:
-        - Always enable depth (`return_depth=True`).
-        - Use a shared random depth sampling helper (same as GroundTruth) instead of full-grid keypoints.
-        - Sample 10% of valid depth pixels (finite and > 0); ignore confidence (use ones).
-        - If depth is unavailable (e.g. SLAM map missing), return empty keypoints for each frame.
-    - [ ] **Da3PerspectiveTransform**:
-        - Ensure DA3 produces depth/conf for each frame (config already updated; optionally enforce `Model.save_depth_conf_result=True` as override).
-        - Load per-frame `results_output/frame_XXXX.npz` (depth + conf) inside the DA3 temp output directory before it is cleaned up; map to face order indices.
-        - Likely change `_run_da3` to return `(w2c, depth, conf)` by reading `results_output` before the temp dir is deleted.
-        - Use `CubeProjector.inverse(..., output_size=(H,W))` to merge face depth/conf into equirectangular.
-        - Use helper to compute keypoints.
-        - Use confidence threshold `0.9`.
-        - DA3 `results_output/frame_XXXX.npz` contains `depth` and `conf` shaped `[H, W]` (float32); stack into `[S, 1, H, W]`.
-- [ ] Append to the plan.
-    - [ ] Update the plan if new information or issues arise.
-    - [ ] Update assumptions and questions if necessary.
+- [x] Formulate overall approach to solve the task.
+    - [x] **VggtNaiveEquirectangular**:
+        - [x] Capture `depth_conf` from VGGT predictions.
+        - [x] Update `_gather_predictions` (or a new helper) to return `depth_conf` alongside `depth`.
+        - [x] Use helper on the original input images; let helper resize depth/conf to input resolution.
+        - [x] Use confidence threshold `0.9`.
+        - [x] Return `poses, keypoints, {}` on `.to(images)` device.
+    - [x] **VggtPerspectiveTransform**:
+        - [x] Keep `depth_conf` from `depth_head`.
+        - [x] Use new `CubeProjector` with enabled faces (right, left, forward, back) to inverse-project `depth_pred_faces` and `depth_conf_faces` to equirectangular size (`output_size=(H,W)`).
+        - [x] Use helper to compute keypoints in equirectangular pixel coords.
+        - [x] Use confidence threshold `0.9`.
+        - [x] Face indices are `[0, 1, 4, 5]` (same as existing `FACE_INDICES` constants) and must match `CubeProjector` enabled faces order.
+    - [x] **VipePanorama**:
+        - [x] Always enable depth (`return_depth=True`).
+        - [x] Use a shared random depth sampling helper (same as GroundTruth) instead of full-grid keypoints.
+        - [x] Sample 10% of valid depth pixels (finite and > 0); ignore confidence (use ones).
+        - [x] If depth is unavailable (e.g. SLAM map missing), return empty keypoints for each frame.
+    - [x] **Da3PerspectiveTransform**:
+        - [x] Ensure DA3 produces depth/conf for each frame (config already updated; optionally enforce `Model.save_depth_conf_result=True` as override).
+        - [x] Load per-frame `results_output/frame_XXXX.npz` (depth + conf) inside the DA3 temp output directory before it is cleaned up; map to face order indices.
+        - [x] Likely change `_run_da3` to return `(w2c, depth, conf)` by reading `results_output` before the temp dir is deleted.
+        - [x] Use `CubeProjector.inverse(..., output_size=(H,W))` to merge face depth/conf into equirectangular.
+        - [x] Use helper to compute keypoints.
+        - [x] Use confidence threshold `0.9`.
+        - [x] DA3 `results_output/frame_XXXX.npz` contains `depth` and `conf` shaped `[H, W]` (float32); stack into `[S, 1, H, W]`.
+- [x] Append to the plan.
+    - [x] Update the plan if new information or issues arise.
+    - [x] Update assumptions and questions if necessary.
 
 
 # Assumptions

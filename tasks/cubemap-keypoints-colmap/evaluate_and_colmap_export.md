@@ -34,28 +34,37 @@ Update evaluation outputs to store keypoints and image size metrics, and add a n
     - [x] Review `evaluate_poses.py` output structure.
     - [x] Review COLMAP binary file formats in `vendor/otf-nvs/dataloaders/read_write_model.py`.
 - [ ] Formulate overall approach to solve the task.
-    - [ ] **evaluate_poses.py**:
-        - Update inference to capture `(poses, keypoints, _)`.
-        - Save `keypoints.pt` after moving tensors to CPU.
-        - Extend metrics with `dataset_image_width` and `dataset_image_height` from `args.data.dataset_image_size`.
-    - [ ] **COLMAP export utility**:
-        - Load `poses.pt` + `keypoints.pt` from `eval_dir/<scene-id>/poses/`.
-        - Write images incrementally to `output_dir/<scene-id>/images`.
-        - Build and write `cameras.bin` using `EQUIRECTANGULAR` with SIMPLE_PINHOLE-style params.
-        - Build and write `images.bin` per frame:
-            - Convert w2c pose to `qvec` (qw,qx,qy,qz) + `tvec` using a rotmat->quat helper (mirror `read_write_model.py`).
-            - Match the sign convention used in `train_splats_otf-nvs.py` (`qvec = -rotmat2qvec(rot)`).
-            - Create `xys` from keypoint pixel coords (float32) and `point3D_ids` with matching length.
-        - Build and write `points3D.bin` with unique point IDs per observation (track length 1); each keypoint becomes one point3D with a single `(image_id, point2D_idx)` track entry.
-        - Sample point RGB from the corresponding image (nearest neighbor) for each keypoint.
-        - Use streaming writes to keep memory usage low.
-        - Binary format details (from COLMAP spec):
-            - `cameras.bin`: `num_cameras (Q)`, then per camera: `id (int)`, `model_id (int)`, `width (Q)`, `height (Q)`, `params (num_params * double)`.
-            - `images.bin`: `num_images (Q)`, then per image: `id (int)`, `qvec (4 * double)`, `tvec (3 * double)`, `camera_id (int)`, `name (chars + '\\0')`, `num_points2D (Q)`, then `num_points2D` records of `(x (double), y (double), point3D_id (q))`.
-            - `points3D.bin`: `num_points3D (Q)`, then per point: `id (Q)`, `xyz (3 * double)`, `rgb (3 * uint8)`, `error (double)`, `track_length (Q)`, then `track_length` records of `(image_id (int), point2D_idx (int))`.
-- [ ] Append to the plan.
-    - [ ] Update the plan if new information or issues arise.
-    - [ ] Update assumptions and questions if necessary.
+- [x] Formulate overall approach to solve the task.
+    - [x] **evaluate_poses.py**:
+        - [x] Update inference to capture `(poses, keypoints, _)`.
+        - [x] Save `keypoints.pt` after moving tensors to CPU.
+        - [x] Extend metrics with `dataset_image_width` and `dataset_image_height` from `args.data.dataset_image_size`.
+    - [x] **COLMAP export utility**:
+        - [x] Load `poses.pt` + `keypoints.pt` from `eval_dir/<scene-id>/poses/`.
+        - [x] Write images incrementally to `output_dir/<scene-id>/images`.
+        - [x] Build and write `cameras.bin` using `EQUIRECTANGULAR` with SIMPLE_PINHOLE-style params.
+        - [x] Build and write `images.bin` per frame:
+            - [x] Convert w2c pose to `qvec` (qw,qx,qy,qz) + `tvec` using a rotmat->quat helper (mirror `read_write_model.py`).
+            - [x] Match the sign convention used in `train_splats_otf-nvs.py` (`qvec = -rotmat2qvec(rot)`).
+            - [x] Create `xys` from keypoint pixel coords (float32) and `point3D_ids` with matching length.
+        - [x] Build and write `points3D.bin` with unique point IDs per observation (track length 1); each keypoint becomes one point3D with a single `(image_id, point2D_idx)` track entry.
+        - [x] Sample point RGB from the corresponding image (nearest neighbor) for each keypoint.
+        - [x] Use streaming writes to keep memory usage low.
+        - [x] Binary format details (from COLMAP spec):
+            - [x] `cameras.bin`: `num_cameras (Q)`, then per camera: `id (int)`, `model_id (int)`, `width (Q)`, `height (Q)`, `params (num_params * double)`.
+            - [x] `images.bin`: `num_images (Q)`, then per image: `id (int)`, `qvec (4 * double)`, `tvec (3 * double)`, `camera_id (int)`, `name (chars + '\\0')`, `num_points2D (Q)`, then `num_points2D` records of `(x (double), y (double), point3D_id (q))`.
+            - [x] `points3D.bin`: `num_points3D (Q)`, then per point: `id (Q)`, `xyz (3 * double)`, `rgb (3 * uint8)`, `error (double)`, `track_length (Q)`, then `track_length` records of `(image_id (int), point2D_idx (int))`.
+- [x] Implement evaluation output updates.
+    - [x] Capture keypoints in `evaluate_poses.py` and save `keypoints.pt`.
+    - [x] Add dataset image size metrics to the evaluation output.
+- [x] Implement COLMAP export utility.
+    - [x] Add `colmap_export.py` with streaming binary writers for cameras, images, and points3D.
+    - [x] Write alpha-applied RGB images and sample per-keypoint colors.
+- [x] Review changes.
+    - [x] Re-read updated evaluation outputs and export utility for format correctness.
+- [x] Append to the plan.
+    - [x] Update the plan if new information or issues arise.
+    - [x] Update assumptions and questions if necessary.
 
 
 # Assumptions

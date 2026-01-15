@@ -59,27 +59,24 @@ def _points_from_indices(
         empty_xyz = th.empty((3, 0), device=depth.device, dtype=depth.dtype)
         return empty_xy, empty_xyz
 
-    assert height > 1 and width > 1, "Equirectangular images must be at least 2x2."
+    assert height > 0 and width > 0, "Equirectangular images must be at least 1x1."
 
-    x = x_idx.to(dtype=depth.dtype)
-    y = y_idx.to(dtype=depth.dtype)
-    x_norm = 2.0 * x / (width - 1.0) - 1.0
-    y_norm = 2.0 * y / (height - 1.0) - 1.0
+    v = (y_idx.to(dtype=depth.dtype) + 0.5) / height
+    u = (x_idx.to(dtype=depth.dtype) + 0.5) / width
 
-    lon = math.pi * x_norm
-    lat = -0.5 * math.pi * y_norm
-    cos_lat = th.cos(lat)
+    lat = -0.5 * math.pi + math.pi * v
+    lon = -math.pi + 2.0 * math.pi * u
 
     directions = th.stack(
         (
-            th.sin(lon) * cos_lat,
+            th.cos(lat) * th.sin(lon),
             th.sin(lat),
-            th.cos(lon) * cos_lat,
+            th.cos(lat) * th.cos(lon),
         ),
         dim=0,
     )
 
-    depths = depth[y_idx, x_idx].to(dtype=depth.dtype)
+    depths = depth[y_idx, x_idx]
     xyz_cam = directions * depths.unsqueeze(0)
 
     pose = pose.to(device=depth.device, dtype=depth.dtype)
@@ -87,7 +84,7 @@ def _points_from_indices(
     trans = pose[:3, 3]
     xyz_world = rot.transpose(0, 1) @ (xyz_cam - trans[:, None])
 
-    xy = th.stack((x, y), dim=0)
+    xy = th.stack((x_idx, y_idx), dim=0)
     return xy, xyz_world
 
 

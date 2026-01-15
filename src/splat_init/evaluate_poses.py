@@ -50,6 +50,7 @@ def _end_metrics(
     sequence_length: int,
     dataset_stride: int,
     dataset_fps: float,
+    dataset_image_size: tuple[int, int],
     chunker_chunk_size: int,
     chunker_chunk_overlap: int,
     model_name: str,
@@ -75,6 +76,8 @@ def _end_metrics(
     gpu_peak = th.cuda.max_memory_allocated() if th.cuda.is_available() else 0
     cpu_rss_bytes = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
 
+    dataset_width, dataset_height = dataset_image_size
+
     return {
         "translation_error_mean": translation_error.mean().item(),
         "translation_error_std": translation_error.std(unbiased=False).item(),
@@ -89,6 +92,8 @@ def _end_metrics(
         "sequence_length": sequence_length,
         "dataset_stride": dataset_stride,
         "dataset_fps": dataset_fps,
+        "dataset_image_width": int(dataset_width),
+        "dataset_image_height": int(dataset_height),
         "chunker_chunk_size": chunker_chunk_size,
         "chunker_chunk_overlap": chunker_chunk_overlap,
         "gpu_memory_allocated": gpu_alloc,
@@ -160,8 +165,8 @@ def main() -> None:
 
         # Inference
         with th.no_grad(), th.inference_mode():
-            poses, _, _ = model.forward([scene])
-            poses_cpu = poses.detach().cpu()
+            poses, keypoints, _ = model.forward([scene])
+            poses_cpu = poses.cpu()
 
         # Metrics end
         chunker_chunk_size, chunker_chunk_overlap = args.model.chunker or (0, 0)
@@ -173,6 +178,7 @@ def main() -> None:
             sequence_length=len(scene),
             dataset_stride=args.data.dataset_stride,
             dataset_fps=args.data.dataset_fps,
+            dataset_image_size=args.data.dataset_image_size,
             chunker_chunk_size=chunker_chunk_size,
             chunker_chunk_overlap=chunker_chunk_overlap,
             model_name=args.model.model,
@@ -184,6 +190,7 @@ def main() -> None:
 
         th.save(poses_cpu, output_dir / "poses.pt")
         th.save(metrics, output_dir / "metrics.pt")
+        th.save(keypoints, output_dir / "keypoints.pt")
 
 
 if __name__ == "__main__":

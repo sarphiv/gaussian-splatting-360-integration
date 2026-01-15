@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 
 import torch as th
-from torchvision.transforms.functional import resize
+from torchvision.transforms.functional import resize, InterpolationMode
 from torch.utils.data import IterableDataset
 from torchvision.io import decode_image, ImageReadMode
 from joblib import Parallel, delayed
@@ -68,7 +68,7 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
             #  so the factor was found through trial and error of aligning of point clouds.
             #  A red container was found in scene index 2, and approximate measurements lead to a width of 6.0,
             #  while the true container is likely 5.9 meters long. The units are therefore likely meters.
-            return resize(decode_image(str(path), mode=ImageReadMode.GRAY).float() * 0.01, size=list(default_shape[1:]))
+            return resize(decode_image(str(path), mode=ImageReadMode.GRAY).float() * 0.01, size=list(default_shape[1:]), interpolation=InterpolationMode.NEAREST_EXACT)
         else:
             return th.full(default_shape, float("inf"))
 

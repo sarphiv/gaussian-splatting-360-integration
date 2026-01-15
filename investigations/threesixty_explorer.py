@@ -8,6 +8,7 @@ import rerun as rr
 import rerun.blueprint as rrb
 import torch as th
 import numpy as np
+# import cv2
 
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset, SceneSample
 from utilities.pose import procrustes_transform
@@ -31,7 +32,7 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2026-01-05T01:40:39") # COLMAP Perspective 8
 # PRED_PATH = Path("outputs/2026-01-05T02:00:04") # COLMAP Perspective 8 ext
 # PRED_PATH = Path("outputs/2026-01-05T02:08:00") # COLMAP Perspective 4 ext
-PRED_PATH = Path("outputs/2026-01-11T20:34:06") # Ground Truth 4
+PRED_PATH = Path("outputs/2026-01-15T22:14:20") # Ground Truth 4
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
@@ -56,11 +57,27 @@ pred_poses_path = pred_scene_path / "poses"
 pred_metrics: dict[str, str | float | int] = th.load(pred_poses_path / "metrics.pt", map_location="cpu")
 scene_idx = int(pred_metrics["scene_idx"])
 pred_poses_w2c = cast(th.Tensor, th.load(pred_poses_path / "poses.pt", map_location="cpu"))
+pred_keypoints = cast(list[(tuple[th.Tensor, th.Tensor])], th.load(pred_poses_path / "keypoints.pt", map_location="cpu"))
+dataset_image_width = int(pred_metrics.get("dataset_image_width", EQUIRECT_SHAPE[0]))
+dataset_image_height = int(pred_metrics.get("dataset_image_height", EQUIRECT_SHAPE[1]))
+dataset_image_size = (dataset_image_width, dataset_image_height)
 
 # NOTE: Depth is required, so many scenes are filtered out
-dataset_reconstruct = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=RECONSTRUCT_STRIDE, worker_count=DATASET_WORKERS)
-dataset_validation = ThreeSixtyLocDataset(SceneSample, Path(environ.get("DATASET_360_LOC_ROOT", "")), stride=cast(int, pred_metrics["dataset_stride"]), worker_count=DATASET_WORKERS)
+dataset_reconstruct = ThreeSixtyLocDataset(
+    SceneSample,
+    Path(environ.get("DATASET_360_LOC_ROOT", "")),
+    stride=RECONSTRUCT_STRIDE,
+    worker_count=DATASET_WORKERS,
+)
+dataset_validation = ThreeSixtyLocDataset(
+    SceneSample,
+    Path(environ.get("DATASET_360_LOC_ROOT", "")),
+    stride=cast(int, pred_metrics["dataset_stride"]),
+    image_size=dataset_image_size,
+    worker_count=DATASET_WORKERS,
+)
 sample_reconstruct = dataset_reconstruct[scene_idx]
+sample_validation = dataset_validation[scene_idx]
 gt_poses_w2c = dataset_validation.load_poses(scene_idx)
 
 # Metrics text
@@ -113,39 +130,49 @@ rr.set_time("time", timestamp=0)
 # Log metrics
 rr.log("info", rr.TextDocument(text=text, media_type=rr.MediaType.MARKDOWN))
 
-# Reconstruct environment
-for seq_idx in range(len(sample_reconstruct.pose)):
-    # Retrieve data
-    pose = sample_reconstruct.pose[seq_idx].inverse()
-    pos, rot = pose[:3, 3], pose[:3, :3]
+# # Reconstruct environment
+# for seq_idx in range(len(sample_reconstruct.pose)):
+#     # Retrieve data
+#     pose = sample_reconstruct.pose[seq_idx].inverse()
+#     pos, rot = pose[:3, 3], pose[:3, :3]
 
-    rgb = sample_reconstruct.rgba[seq_idx].permute(1, 2, 0).numpy()
-    height, width = rgb.shape[:2]
-    depth = sample_reconstruct.depth[seq_idx, 0].numpy()
+#     rgb = sample_reconstruct.rgba[seq_idx].permute(1, 2, 0).numpy()
+#     height, width = rgb.shape[:2]
+#     depth = sample_reconstruct.depth[seq_idx, 0].numpy()
 
-    # Create point cloud
-    d = depth[::POINTS_STRIDE, ::POINTS_STRIDE].reshape(-1)
-    v = (np.arange(0, height, POINTS_STRIDE, dtype=np.float32) + 0.5) / height
-    u = (np.arange(0, width, POINTS_STRIDE, dtype=np.float32) + 0.5) / width
-    lat, lon = np.meshgrid(
-        -np.pi / 2 + np.pi * v,
-        -np.pi + 2 * np.pi * u,
-        indexing="ij",
+#     # Create point cloud
+#     d = depth[::POINTS_STRIDE, ::POINTS_STRIDE].reshape(-1)
+#     v = (np.arange(0, height, POINTS_STRIDE, dtype=np.float32) + 0.5) / height
+#     u = (np.arange(0, width, POINTS_STRIDE, dtype=np.float32) + 0.5) / width
+#     lat, lon = np.meshgrid(
+#         -np.pi / 2 + np.pi * v,
+#         -np.pi + 2 * np.pi * u,
+#         indexing="ij",
+#     )
+#     lat, lon = lat.reshape(-1), lon.reshape(-1)
+#     x = d * np.cos(lat) * np.sin(lon)
+#     y = d * np.sin(lat)
+#     z = d * np.cos(lat) * np.cos(lon)
+
+#     points = np.stack((x, y, z), axis=-1)
+#     colors = rgb[::POINTS_STRIDE, ::POINTS_STRIDE, :].reshape(-1, 4)
+
+#     # Log environment
+#     rr.log(f"world/env/{seq_idx}", rr.Transform3D(translation=pos, mat3x3=rot))
+#     rr.log(f"world/env/{seq_idx}/points", rr.Points3D(points, colors=colors))
+
+# Reconstruct keypoints
+for seq_idx in range(len(sample_validation.pose)):
+    rgb_kp = sample_validation.rgba[seq_idx].permute(1, 2, 0).numpy()
+    xy = pred_keypoints[seq_idx][0]
+    xyz = pred_keypoints[seq_idx][1].permute(1, 0).numpy()
+    rr.log(
+        f"world/env/{seq_idx}",
+        rr.Points3D(
+            xyz,
+            colors=rgb_kp[xy[1], xy[0], :]
+        )
     )
-    lat, lon = lat.reshape(-1), lon.reshape(-1)
-    x = d * np.cos(lat) * np.sin(lon)
-    y = d * np.sin(lat)
-    z = d * np.cos(lat) * np.cos(lon)
-
-    points = np.stack((x, y, z), axis=-1)
-    colors = rgb[::POINTS_STRIDE, ::POINTS_STRIDE, :].reshape(-1, 4)
-
-    # Log environment
-    rr.log(f"world/env/{seq_idx}", rr.Transform3D(translation=pos, mat3x3=rot))
-    # rr.log(f"world/env/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_GT, radii=SIZE_GT))
-    # rr.log(f"world/env/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_GT * 10))
-    # rr.log(f"world/env/{seq_idx}/image/rgb", rr.Image(cv2.resize(rgb, dsize=EQUIRECT_SHAPE, interpolation=cv2.INTER_LINEAR), color_model=rr.ColorModel.RGBA)) # type: ignore[reportArgumentType]
-    rr.log(f"world/env/{seq_idx}/points", rr.Points3D(points, colors=colors))
 
 sequence_len = min(len(pred_poses_w2c), len(gt_poses_w2c))
 pred_poses_w2c = pred_poses_w2c[:sequence_len]

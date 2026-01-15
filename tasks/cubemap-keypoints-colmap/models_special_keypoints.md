@@ -40,17 +40,17 @@ Update special-case models and wrappers: `sequence_chunker.py` (merge keypoints)
     - [x] Review `SequenceChunker.forward` chunk logic and overlap alignment.
     - [x] Review `PycolmapPerspectiveTransform` face ordering and COLMAP run pipeline.
     - [x] Review dataset depth/pose availability for ground-truth.
-- [ ] Formulate overall approach to solve the task.
-    - [ ] **SequenceChunker**:
+- [x] Formulate overall approach to solve the task.
+    - [x] **SequenceChunker**:
         - Carry `keypoints` through the chunking path.
         - For each chunk, align keypoints into the global world frame using the same Procrustes transform applied to chunk poses (use `procrustes_analysis` to retrieve rotation/scale/translation, then apply to 3D points).
         - For overlapping frames: stack coords, convert xy to integer pixel coords for stable matching, use `torch.unique` + scatter-add to average 3D points for duplicate pixels.
-    - [ ] **GroundTruthPose**:
+    - [x] **GroundTruthPose**:
         - During `__init__`, sample 10% of pixels per frame (shared utility with ViPE).
         - Sample only valid depth pixels (finite and > 0).
         - Use depth + pose to compute world-space keypoints, store in list aligned with scenes.
         - `forward` returns poses and precomputed keypoints for the current scene.
-    - [ ] **PycolmapPerspectiveTransform**:
+    - [x] **PycolmapPerspectiveTransform**:
         - After reconstruction, run `pycolmap.undistort_images` (dense output).
         - Read `dense/sparse/0` binary outputs (cameras/images/points3D).
         - For each image, use `image.name` to parse `(face_idx, frame_idx)` via `_parse_image_name`.
@@ -59,11 +59,18 @@ Update special-case models and wrappers: `sequence_chunker.py` (merge keypoints)
             - Convert pixel `(x, y)` to normalized `u_lin, v_lin` in `[-1, 1]` using face size.
             - Use standard cubemap coordinates (no tangent warp): `u = u_lin`, `v = v_lin`.
             - Build direction using the same face conventions as `OTCProjector._dir_for_face`.
-            - Convert to `(lon, lat)` and then to equirect pixel coords `(x, y)` in `[0, W-1] x [0, H-1]`.
+        - Convert to `(lon, lat)` and then to equirect pixel coords `(x, y)` in `[0, W-1] x [0, H-1]`.
         - Build per-frame list[(xy, xyz)] where xyz come from COLMAP `points3D[point3D_id].xyz`; include one entry per image observation (do not deduplicate across images).
-- [ ] Append to the plan.
-    - [ ] Update the plan if new information or issues arise.
-    - [ ] Update assumptions and questions if necessary.
+- [x] Implement updates.
+    - [x] Align and merge `SequenceChunker` keypoints using chunk Procrustes transforms.
+    - [x] Precompute `GroundTruthPose` keypoints from depth sampling and return them in `forward`.
+    - [x] Switch to `CubeProjector`, undistort COLMAP outputs, read `dense/sparse/0`, and map keypoints to equirectangular pixels.
+- [x] Review updates for consistency.
+    - [x] Validate keypoint merge behavior on overlaps and empty outputs.
+    - [x] Confirm COLMAP keypoint mapping preserves point3D associations without extra filtering.
+- [x] Append to the plan.
+    - [x] Update the plan if new information or issues arise.
+    - [x] Update assumptions and questions if necessary.
 
 
 # Assumptions
