@@ -32,7 +32,7 @@ from vipe.utils.geometry import project_points_to_panorama, se3_to_so3, so3_to_s
 class _TensorVideoStream(VideoStream):
     """VideoStream backed by an in-memory tensor of panorama frames."""
 
-    def __init__(self, frames: th.Tensor, name: str, fps: float) -> None:
+    def __init__(self, frames: th.Tensor, name: str, fps: float, device: th.device) -> None:
         super().__init__()
         assert frames.dim() == 4, "Expected tensor shaped [S, C, H, W]"
         self._frames = frames
@@ -40,6 +40,7 @@ class _TensorVideoStream(VideoStream):
         self._size = (frames.shape[-2], frames.shape[-1])
         self._name = name
         self._fps = fps
+        self._device = device
 
     def frame_size(self) -> tuple[int, int]:
         return self._size
@@ -61,7 +62,7 @@ class _TensorVideoStream(VideoStream):
             yield self._make_frame(idx)
 
     def _make_frame(self, idx: int) -> VideoFrame:
-        frame = self._frames[idx]
+        frame = self._frames[idx].to(device=self._device)
         assert frame.dim() == 3, "Frame tensor must be [C, H, W]"
 
         rgb = frame[:3]
@@ -162,8 +163,8 @@ class VipePanorama(LightningModule):
         """Create a ViPE VideoStream from a batch of panorama tensors."""
 
         assert images.dim() == 4, "Expected tensor shaped [S, C, H, W]"
-        frames = images.to(device=self.device, dtype=cast(th.dtype, self.dtype))
-        return _TensorVideoStream(frames, name="tensor_sequence", fps=self.fps)
+        frames = images.to(device="cpu", dtype=cast(th.dtype, self.dtype))
+        return _TensorVideoStream(frames, name="tensor_sequence", fps=self.fps, device=self.device)
 
     def _apply_init_processors(self, video_stream: VideoStream) -> VideoStream:
         """Attach TrackAnything preprocessing when enabled in the config."""
@@ -210,7 +211,7 @@ class VipePanorama(LightningModule):
         pose_w2c: th.Tensor,
         slam_map: SLAMMap,
         size: tuple[int, int],
-        sample_ratio: float = 0.001,
+        sample_ratio: float = 0.10,
         tstamp_nn: int = 3,
     ) -> list[tuple[th.Tensor, th.Tensor]]:
         """Project SLAM map points into panorama frames and sample keypoints."""
@@ -280,7 +281,7 @@ class VipePanorama(LightningModule):
                 y = y[perm]
 
             xy = th.stack((x, y), dim=0)
-            keypoints.append((xy.cpu(), xyz_valid.transpose(0, 1).cpu()))
+            keypoints.append((xy.to(dtype=th.int32, device="cpu"), xyz_valid.transpose(0, 1).cpu()))
 
         return keypoints
 
@@ -314,7 +315,7 @@ class VipePanorama(LightningModule):
         if not self.return_depth or slam_output.slam_map is None:
             keypoints = [
                 (
-                    th.empty((2, 0), device=th.device("cpu"), dtype=images.dtype),
+                    th.empty((2, 0), device=th.device("cpu"), dtype=th.int32),
                     th.empty((3, 0), device=th.device("cpu"), dtype=images.dtype),
                 )
                 for _ in range(seq_len)
@@ -323,8 +324,7 @@ class VipePanorama(LightningModule):
             keypoints = self._sample_keypoints_from_slam_map(
                 pose_w2c.detach(),
                 slam_output.slam_map,
-                (height, width),
-                sample_ratio=0.001,
+                (height, width)
             )
 
         return pose_w2c.unsqueeze(0).to(images), keypoints, {}

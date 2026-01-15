@@ -1,6 +1,6 @@
 ---
 name: complex-task
-description: Orchestrate complex, high-risk, or ambiguous tasks by splitting work across orchestrator, implementer, and reviewer roles with explicit planning, parallel subtasks, and structured review. Use when correctness is critical, scope is large, or the path to a good solution is unclear.
+description: Orchestrate complex, high-risk, or ambiguous tasks by splitting work across orchestrator, implementer, and reviewer roles with explicit planning, parallel subtasks, and structured review. Used when correctness is critical, scope is large, or the path to a good solution is unclear. Only the human operator may initiate usage.
 ---
 
 # Complex task

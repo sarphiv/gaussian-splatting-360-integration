@@ -59,7 +59,7 @@ def _end_metrics(
 
     pose_gt_f32 = pose_gt.to(dtype=th.float32)
     pose_pred_f32 = pose_pred.to(dtype=th.float32)
-    pose_pred_aligned = procrustes_transform(pose_pred_f32, pose_gt_f32, pose_pred_f32, allow_scale=True)
+    pose_pred_aligned, _ = procrustes_transform(pose_pred_f32, pose_gt_f32, pose_pred_f32, allow_scale=True)
 
     gt_centers = camera_centers(pose_gt_f32)
     pred_centers = camera_centers(pose_pred_aligned)
@@ -166,14 +166,13 @@ def main() -> None:
         # Inference
         with th.no_grad(), th.inference_mode():
             poses, keypoints, _ = model.forward([scene])
-            poses_cpu = poses.cpu()
 
         # Metrics end
         chunker_chunk_size, chunker_chunk_overlap = args.model.chunker or (0, 0)
         metrics = _end_metrics(
             metrics_runtime,
             pose_gt=scene.poses[:],
-            pose_pred=poses_cpu,
+            pose_pred=poses,
             scene_idx=scene_idx,
             sequence_length=len(scene),
             dataset_stride=args.data.dataset_stride,
@@ -188,7 +187,7 @@ def main() -> None:
         output_dir = args.output_dir / scene.id / "poses"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        th.save(poses_cpu, output_dir / "poses.pt")
+        th.save(poses, output_dir / "poses.pt")
         th.save(metrics, output_dir / "metrics.pt")
         th.save(keypoints, output_dir / "keypoints.pt")
 

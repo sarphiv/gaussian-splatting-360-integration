@@ -32,7 +32,9 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2026-01-05T01:40:39") # COLMAP Perspective 8
 # PRED_PATH = Path("outputs/2026-01-05T02:00:04") # COLMAP Perspective 8 ext
 # PRED_PATH = Path("outputs/2026-01-05T02:08:00") # COLMAP Perspective 4 ext
-PRED_PATH = Path("outputs/2026-01-15T22:14:20") # Ground Truth 4
+# PRED_PATH = Path("outputs/2026-01-15T22:14:20") # Ground Truth 4
+# PRED_PATH = Path("outputs/2026-01-20T12:10:18") # ViPE 4
+PRED_PATH = Path("outputs/2026-01-20T15:51:04") # ViPE 4
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
@@ -90,6 +92,8 @@ text = (
     f"  - Index: {scene_idx}\n"
     f"  - Stride: {pred_metrics["dataset_stride"]}\n"
     f"  - Length: {pred_metrics["sequence_length"]}\n"
+    f"  - Width: {pred_metrics["dataset_image_width"]}\n"
+    f"  - Height: {pred_metrics["dataset_image_height"]}\n"
     f"- Compute:\n"
     f"  - FPS: {cast(float, pred_metrics["sequence_length"]) / cast(float, pred_metrics["elapsed_seconds"]):.2f}\n"
     f"  - Time (s): {cast(float, pred_metrics["elapsed_seconds"]):.2f}\n"
@@ -161,24 +165,12 @@ rr.log("info", rr.TextDocument(text=text, media_type=rr.MediaType.MARKDOWN))
 #     rr.log(f"world/env/{seq_idx}", rr.Transform3D(translation=pos, mat3x3=rot))
 #     rr.log(f"world/env/{seq_idx}/points", rr.Points3D(points, colors=colors))
 
-# Reconstruct keypoints
-for seq_idx in range(len(sample_validation.pose)):
-    rgb_kp = sample_validation.rgba[seq_idx].permute(1, 2, 0).numpy()
-    xy = pred_keypoints[seq_idx][0]
-    xyz = pred_keypoints[seq_idx][1].permute(1, 0).numpy()
-    rr.log(
-        f"world/env/{seq_idx}",
-        rr.Points3D(
-            xyz,
-            colors=rgb_kp[xy[1], xy[0], :]
-        )
-    )
 
 sequence_len = min(len(pred_poses_w2c), len(gt_poses_w2c))
 pred_poses_w2c = pred_poses_w2c[:sequence_len]
 gt_poses_w2c = gt_poses_w2c[:sequence_len]
 
-pred_aligned_w2c = procrustes_transform(
+pred_aligned_w2c, align = procrustes_transform(
     pred_poses_w2c,
     gt_poses_w2c,
     pred_poses_w2c,
@@ -190,6 +182,21 @@ gt_poses_c2w = gt_poses_w2c.inverse()
 pos_gt_prev = None
 pos_pred_prev = None
 
+
+# Log keypoints
+for seq_idx in range(len(sample_validation.pose)):
+    rgb_kp = sample_validation.rgba[seq_idx].permute(1, 2, 0).numpy()
+    xy = pred_keypoints[seq_idx][0]
+    xyz = align(pred_keypoints[seq_idx][1].permute(1, 0), None)[0].numpy()
+    rr.log(
+        f"world/key/{seq_idx}",
+        rr.Points3D(
+            xyz,
+            colors=rgb_kp[xy[1], xy[0], :]
+        )
+    )
+
+# Log poses
 for seq_idx in range(sequence_len):
     pose_gt = gt_poses_c2w[seq_idx]
     pos_gt, rot_gt = pose_gt[:3, 3], pose_gt[:3, :3]

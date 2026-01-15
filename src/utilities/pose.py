@@ -158,7 +158,7 @@ def _procrustes_components(
 
 def procrustes_analysis(
     source: th.Tensor, target: th.Tensor, allow_scale: bool = True
-) -> Callable[[th.Tensor, th.Tensor], tuple[th.Tensor, th.Tensor]]:
+) -> Callable[[th.Tensor, th.Tensor | None], tuple[th.Tensor, th.Tensor]]:
     """Return an aligner that rigidly (and optionally uniformly) scales ``source`` onto ``target``.
 
     The returned function expects position tensors shaped ``[..., 3]`` and rotation matrices shaped
@@ -167,9 +167,9 @@ def procrustes_analysis(
 
     rotation, scale, source_centroid, target_centroid = _procrustes_components(source, target, allow_scale)
 
-    def procrustes_align(position: th.Tensor, rotation_mats: th.Tensor) -> tuple[th.Tensor, th.Tensor]:
+    def procrustes_align(position: th.Tensor, rotation_mats: th.Tensor | None = None) -> tuple[th.Tensor, th.Tensor]:
         aligned_pos = scale * (position - source_centroid) @ rotation + target_centroid
-        aligned_rot = rotation_mats @ rotation
+        aligned_rot = rotation_mats @ rotation if rotation_mats is not None else th.empty(0)
         return aligned_pos, aligned_rot
 
     return procrustes_align
@@ -177,7 +177,7 @@ def procrustes_analysis(
 
 def procrustes_transform(
     source_pose: th.Tensor, target_pose: th.Tensor, input_pose: th.Tensor, allow_scale: bool = True
-) -> th.Tensor:
+) -> tuple[th.Tensor, Callable[[th.Tensor, th.Tensor | None], tuple[th.Tensor, th.Tensor]]]:
     """Align ``input_pose`` using a Procrustes alignment computed from ``source_pose`` to ``target_pose``.
 
     Alignment is estimated on camera centres of ``source_pose`` and ``target_pose`` and then applied to
@@ -192,7 +192,7 @@ def procrustes_transform(
     align = procrustes_analysis(source_pos, target_pos, allow_scale=allow_scale)
     aligned_pos, aligned_rot = align(camera_centers(input_pose), input_pose[..., :3, :3])
 
-    return pose_from_center_and_rotation(aligned_pos, aligned_rot)
+    return pose_from_center_and_rotation(aligned_pos, aligned_rot), align
 
 
 def quat_to_mat_xyzw(quat: th.Tensor) -> th.Tensor:
