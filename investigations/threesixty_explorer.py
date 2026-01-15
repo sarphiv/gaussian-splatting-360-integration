@@ -40,8 +40,10 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2026-01-22T15:05:16") # DA3 4
 # PRED_PATH = Path("outputs/2026-01-22T17:05:17") # DA3 4
 # PRED_PATH = Path("outputs/2026-01-22T17:16:15") # DA3 4
-PRED_PATH = Path("outputs/2026-01-22T17:30:28") # DA3 2
+# PRED_PATH = Path("outputs/2026-01-22T17:30:28") # DA3 2
 # PRED_PATH = Path("outputs/2026-01-22T17:45:12") # DA3 8
+# PRED_PATH = Path("outputs/2026-01-22T19:07:16") # COLMAP 8
+PRED_PATH = Path("outputs/2026-01-22T19:38:57") # COLMAP 8
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
@@ -193,7 +195,7 @@ pos_pred_prev = None
 # Log keypoints
 for seq_idx in range(len(sample_validation.pose)):
     rgb_kp = sample_validation.rgba[seq_idx].permute(1, 2, 0).numpy()
-    xy = pred_keypoints[seq_idx][0]
+    xy = pred_keypoints[seq_idx][0].to(dtype=th.int32)
     xyz = align(pred_keypoints[seq_idx][1].permute(1, 0), None)[0].numpy()
     rr.log(
         f"world/key/{seq_idx}",
