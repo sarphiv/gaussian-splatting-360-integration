@@ -3,12 +3,13 @@
 The module mirrors the behaviour of running ``vipe infer -p panorama`` but
 operates directly on in-memory panorama tensors shaped ``[B, S, C, H, W]``.
 It builds a minimal VideoStream backed by those tensors, runs the ViPE
-panorama SLAM pipeline, and returns world-to-camera pose matrices alongside an
-optional depth projection derived from the reconstructed SLAM map.
+panorama SLAM pipeline, and returns world-to-camera pose matrices alongside
+keypoints projected from the reconstructed SLAM map.
 """
 
 from __future__ import annotations
 
+import math
 from typing import Iterator, cast
 
 import hydra
@@ -24,7 +25,8 @@ from vipe.slam.interface import SLAMMap, SLAMOutput
 from vipe.slam.system import SLAMSystem
 from vipe.streams.base import CachedVideoStream, FrameAttribute, ProcessedVideoStream, VideoFrame, VideoStream
 from vipe.utils.cameras import CameraType
-from vipe.utils.geometry import so3_to_se3, se3_to_so3
+from vipe.utils.geometry import project_points_to_panorama, se3_to_so3, so3_to_se3
+
 
 
 class _TensorVideoStream(VideoStream):
@@ -82,7 +84,7 @@ class VipePanorama(LightningModule):
     def __init__(
         self,
         fps: float = 30.0,
-        return_depth: bool = False
+        return_depth: bool = True
     ) -> None:
         super().__init__()
         self.save_hyperparameters()
@@ -92,7 +94,7 @@ class VipePanorama(LightningModule):
         self.pipeline_cfg = self._compose_config(
             "panorama",
             virtual_num_views=4,
-            use_top=True,
+            use_top=False,
             use_bottom=False,
         )
         self.init_cfg = self.pipeline_cfg.init
@@ -192,37 +194,100 @@ class VipePanorama(LightningModule):
         rig_se3 = lt.stack(self.rig_transforms, dim=0)
         return slam_streams, rig_se3
 
+    def _empty_cuda_cache(self) -> None:
+        """Attempt to empty the CUDA cache to free up memory"""
+        if self.device.type == "cuda" and th.cuda.is_available():
+            th.cuda.empty_cache()
+
     def _run_slam(self, slam_streams: list[VideoStream], rig: lt.SE3) -> SLAMOutput:
         """Run the ViPE SLAM backend."""
 
         slam_pipeline = SLAMSystem(device=self.device, config=self.slam_cfg)
         return slam_pipeline.run(slam_streams, rig=rig)
 
-    def _project_depth(self, trajectory: lt.SE3, slam_map: SLAMMap | None, size: tuple[int, int]) -> th.Tensor | None:
-        """Project the reconstructed SLAM map back onto the panorama grid."""
+    def _sample_keypoints_from_slam_map(
+        self,
+        pose_w2c: th.Tensor,
+        slam_map: SLAMMap,
+        size: tuple[int, int],
+        sample_ratio: float = 0.001,
+        tstamp_nn: int = 3,
+    ) -> list[tuple[th.Tensor, th.Tensor]]:
+        """Project SLAM map points into panorama frames and sample keypoints."""
 
-        if slam_map is None:
-            return None
+        assert pose_w2c.shape[-2:] == (4, 4), "Expected pose matrices shaped [S,4,4]"
+        assert 0.0 < sample_ratio <= 1.0, "Sample ratio must be in (0, 1]"
 
-        depth_maps = []
-        intrinsics = th.zeros(4, device=self.device, dtype=cast(th.dtype, self.dtype))
-        for frame_idx in range(trajectory.shape[0]):
-            depth = slam_map.project_map(
-                frame_idx,
-                view_idx=-1,
-                target_size=size,
-                target_intrinsics=intrinsics,
-                target_pose=trajectory[frame_idx],
-                target_camera_type=CameraType.PANORAMA,
-                infill=True,
+        height, width = size
+        frame_inds = np.asarray(slam_map.dense_disp_frame_inds, dtype=np.int64)
+        dtype = slam_map.dense_disp_xyz.dtype
+
+        empty_xy = th.empty((2, 0), device=th.device("cpu"), dtype=dtype)
+        empty_xyz = th.empty((3, 0), device=th.device("cpu"), dtype=dtype)
+        if frame_inds.size == 0:
+            return [(empty_xy, empty_xyz) for _ in range(pose_w2c.shape[0])]
+
+        keypoints: list[tuple[th.Tensor, th.Tensor]] = []
+        for frame_idx in range(pose_w2c.shape[0]):
+            right_keyframe_idx = int(np.searchsorted(frame_inds, frame_idx))
+            right_keyframe_idx = min(right_keyframe_idx + tstamp_nn, len(frame_inds) - 1)
+            left_keyframe_idx = max(right_keyframe_idx - 2 * tstamp_nn, 0)
+
+            xyz_list: list[th.Tensor] = []
+            for keyframe_idx in range(left_keyframe_idx, right_keyframe_idx + 1):
+                xyz_kf, _ = slam_map.get_dense_disp_pcd(keyframe_idx, view_idx=-1)
+                if xyz_kf.numel() > 0:
+                    xyz_list.append(xyz_kf)
+
+            if not xyz_list:
+                keypoints.append((empty_xy, empty_xyz))
+                continue
+
+            xyz_world = th.cat(xyz_list, dim=0)
+            # SLAM map points are in world coordinates; move into the panorama camera frame.
+            w2c = pose_w2c[frame_idx].to(device=xyz_world.device, dtype=xyz_world.dtype)
+            xyz_cam = xyz_world @ w2c[:3, :3].T + w2c[:3, 3]
+
+            uvd = project_points_to_panorama(xyz_cam, return_depth=True)
+            # Convert normalized panorama UV to pixel centers.
+            x = uvd[:, 0] * width - 0.5
+            y = uvd[:, 1] * height - 0.5
+            depth = uvd[:, 2]
+
+            valid = (
+                (depth > 0.0)
+                & th.isfinite(x)
+                & th.isfinite(y)
+                & (x >= 0.0)
+                & (x < width)
+                & (y >= 0.0)
+                & (y < height)
             )
-            depth_maps.append(depth)
+            if not valid.any():
+                keypoints.append((empty_xy, empty_xyz))
+                continue
 
-        depth_stack = th.stack(depth_maps, dim=0).unsqueeze(1)
-        return depth_stack
+            xyz_valid = xyz_world[valid]
+            x = x[valid]
+            y = y[valid]
 
-    def forward(self, images: th.Tensor) -> tuple[th.Tensor, th.Tensor | None, dict[str, th.Tensor]]:
-        """Estimate camera poses and optional depth from panorama tensors."""
+            num_valid = xyz_valid.shape[0]
+            num_samples = min(num_valid, math.ceil(sample_ratio * num_valid))
+            if num_samples < num_valid:
+                perm = th.randperm(num_valid, device=xyz_valid.device)[:num_samples]
+                xyz_valid = xyz_valid[perm]
+                x = x[perm]
+                y = y[perm]
+
+            xy = th.stack((x, y), dim=0)
+            keypoints.append((xy.cpu(), xyz_valid.transpose(0, 1).cpu()))
+
+        return keypoints
+
+    def forward(
+        self, images: th.Tensor
+    ) -> tuple[th.Tensor, list[tuple[th.Tensor, th.Tensor]] | None, dict[str, th.Tensor]]:
+        """Estimate camera poses and SLAM-map-derived keypoints from panorama tensors."""
 
         if images.dim() != 5:
             raise ValueError("Expected input shaped [B, S, C, H, W]")
@@ -237,19 +302,32 @@ class VipePanorama(LightningModule):
         slam_streams, rig = self._build_slam_streams(video_stream)
 
         with th.inference_mode():
+            self._empty_cuda_cache()
             slam_output = self._run_slam(slam_streams, rig)
             trajectory = slam_output.trajectory
-            if trajectory.shape[0] != seq_len:
-                raise RuntimeError(
-                    f"SLAM returned {trajectory.shape[0]} poses for a sequence of length {seq_len}"
-                )
+            assert trajectory.shape[0] == seq_len, "SLAM trajectory length mismatch"
+            self._empty_cuda_cache()
 
             pose_c2w = trajectory.matrix()
             pose_w2c = th.linalg.inv(pose_c2w)
 
-            depth = self._project_depth(trajectory, slam_output.slam_map, (height, width)) if self.return_depth else None
+        if not self.return_depth or slam_output.slam_map is None:
+            keypoints = [
+                (
+                    th.empty((2, 0), device=th.device("cpu"), dtype=images.dtype),
+                    th.empty((3, 0), device=th.device("cpu"), dtype=images.dtype),
+                )
+                for _ in range(seq_len)
+            ]
+        else:
+            keypoints = self._sample_keypoints_from_slam_map(
+                pose_w2c.detach(),
+                slam_output.slam_map,
+                (height, width),
+                sample_ratio=0.001,
+            )
 
-        return pose_w2c.unsqueeze(0).to(images), depth.unsqueeze(0).to(images) if depth is not None else None, {}
+        return pose_w2c.unsqueeze(0).to(images), keypoints, {}
 
     def configure_optimizers(self):
         """Lightning hook for compatibility; ViPE is inference-only."""
