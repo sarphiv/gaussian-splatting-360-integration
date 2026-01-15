@@ -90,50 +90,68 @@ def _points_from_indices(
 
 def keypoints_from_depth(
     poses: th.Tensor,
-    rgb: th.Tensor,
     depth: th.Tensor,
     depth_confidence: th.Tensor,
+    image_shape: tuple[int, int],
     confidence_threshold: float,
+    sample_ratio: float,
 ) -> list[tuple[th.Tensor, th.Tensor]]:
-    """Return per-image pixel coordinates and world points filtered by depth confidence."""
+    """Return per-image pixel coordinates and world points filtered by depth confidence.
 
-    assert rgb.dim() >= 3, "Expected RGB/RGBA input with channel and spatial dims"
-    assert rgb.shape[-3] in (3, 4), "Expected RGB/RGBA input"
+    The image shape defines the target pixel grid used for resizing depth maps. The
+    sample ratio controls how many of the confident keypoints are retained.
+    """
+
     assert poses.shape[-2:] == (4, 4), "Pose matrices must be 4x4"
+    assert len(image_shape) == 2, "image_shape must be (H, W)"
+    height, width = int(image_shape[0]), int(image_shape[1])
+    assert height > 0 and width > 0, "Image shape must be positive"
+    assert 0.0 < sample_ratio <= 1.0, "Sample ratio must be in (0, 1]"
 
     depth = _ensure_channel_dim(depth, "depth")
     depth_confidence = _ensure_channel_dim(depth_confidence, "depth_confidence")
 
-    flat_rgb, leading = _flatten_leading(rgb, 3, "rgb")
-    flat_depth, depth_leading = _flatten_leading(depth, 3, "depth")
+    flat_depth, leading = _flatten_leading(depth, 3, "depth")
     flat_conf, conf_leading = _flatten_leading(depth_confidence, 3, "depth_confidence")
     flat_pose, pose_leading = _flatten_leading(poses, 2, "poses")
 
-    assert leading == depth_leading, "Depth must match RGB leading dimensions"
-    assert leading == conf_leading, "Depth confidence must match RGB leading dimensions"
-    assert leading == pose_leading, "Poses must match RGB leading dimensions"
+    assert leading == conf_leading, "Depth confidence must match depth leading dimensions"
+    assert leading == pose_leading, "Poses must match depth leading dimensions"
 
-    threshold = float(confidence_threshold)
     results: list[tuple[th.Tensor, th.Tensor]] = []
-    for idx in range(flat_rgb.shape[0]):
-        rgb_i = flat_rgb[idx]
-        depth_i = flat_depth[idx].to(device=rgb_i.device)
-        conf_i = flat_conf[idx].to(device=rgb_i.device)
+    for idx in range(flat_depth.shape[0]):
+        depth_i = flat_depth[idx]
+        conf_i = flat_conf[idx].to(device=depth_i.device)
         pose_i = flat_pose[idx]
 
-        height, width = rgb_i.shape[-2:]
         depth_i = _resize_map(depth_i, height, width).squeeze(0)
         conf_i = _resize_map(conf_i, height, width).squeeze(0)
 
         valid_depth = (depth_i > 0.0) & th.isfinite(depth_i)
-        valid_conf = (conf_i >= threshold) & th.isfinite(conf_i)
+        valid_conf = (conf_i >= confidence_threshold) & th.isfinite(conf_i)
         mask = valid_depth & valid_conf
 
         indices = mask.nonzero(as_tuple=False)
-        y_idx = indices[:, 0]
-        x_idx = indices[:, 1]
+        if indices.numel() == 0:
+            xy, xyz = _points_from_indices(
+                pose_i,
+                depth_i,
+                indices.new_empty((0,), dtype=indices.dtype),
+                indices.new_empty((0,), dtype=indices.dtype),
+                height,
+                width,
+            )
+            results.append((xy, xyz))
+            continue
+
+        num_valid = indices.shape[0]
+        num_samples = min(num_valid, math.ceil(sample_ratio * num_valid))
+        perm = th.randperm(num_valid, device=indices.device)[:num_samples]
+        chosen = indices[perm]
+        y_idx = chosen[:, 0]
+        x_idx = chosen[:, 1]
         xy, xyz = _points_from_indices(pose_i, depth_i, x_idx, y_idx, height, width)
-        results.append((xy.to(device=rgb_i.device), xyz.to(device=rgb_i.device)))
+        results.append((xy, xyz))
 
     return results
 
@@ -142,7 +160,7 @@ def sample_keypoints_from_depth(
     poses: th.Tensor,
     rgb: th.Tensor,
     depth: th.Tensor,
-    sample_ratio: float = 0.1,
+    sample_ratio: float,
 ) -> list[tuple[th.Tensor, th.Tensor]]:
     """Randomly sample keypoints from valid depth values per image."""
 

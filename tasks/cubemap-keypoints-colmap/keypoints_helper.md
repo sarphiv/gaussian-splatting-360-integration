@@ -13,12 +13,12 @@ Add a utility function under `src/utilities/` that converts per-image depth + co
 ## Scope
 ### In scope
 - Add a new utility module (suggested: `src/utilities/keypoints.py` or `src/utilities/depth_keypoints.py`) with a function like:
-  `keypoints_from_depth(poses, rgb, depth, depth_confidence, confidence_threshold) -> list[tuple[Tensor, Tensor]]`.
+  `keypoints_from_depth(poses, depth, depth_confidence, image_shape, confidence_threshold) -> list[tuple[Tensor, Tensor]]`.
 - Add a second helper for random sampling (shared by ViPE + GroundTruth), e.g.:
   `sample_keypoints_from_depth(poses, rgb, depth, sample_ratio=0.1) -> list[tuple[Tensor, Tensor]]`.
 - Required behavior:
   - `poses` are world-to-camera matrices; use them to transform camera-frame 3D points into world coordinates.
-  - Input `rgb` is used to determine the target pixel grid shape.
+  - Input `image_shape` is used to determine the target pixel grid shape.
   - If `depth` spatial dims do not match `rgb`, resize `depth` (and `depth_confidence` for alignment) bilinearly to match `rgb`.
   - Filter pixels by `depth_confidence >= confidence_threshold` and valid depth values (`depth > 0` and finite).
   - Return `list[(xy, xyz)]` per image in batch/sequence order, where:
@@ -30,7 +30,7 @@ Add a utility function under `src/utilities/` that converts per-image depth + co
 - Keep GPU memory usage low:
   - Prefer per-image processing.
   - Avoid building full-resolution grids on GPU; compute lon/lat and rays only for selected pixel indices.
-  - Return tensors on the same device as the input images (use `.to(images)`).
+  - Return tensors on the same device as the input depth maps.
 
 ### Out of scope
 - Modifying any models or pipelines that will call this helper.

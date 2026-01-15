@@ -34,7 +34,14 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2026-01-05T02:08:00") # COLMAP Perspective 4 ext
 # PRED_PATH = Path("outputs/2026-01-15T22:14:20") # Ground Truth 4
 # PRED_PATH = Path("outputs/2026-01-20T12:10:18") # ViPE 4
-PRED_PATH = Path("outputs/2026-01-20T15:51:04") # ViPE 4
+# PRED_PATH = Path("outputs/2026-01-20T15:51:04") # ViPE 4
+# PRED_PATH = Path("outputs/2026-01-20T17:45:21") # DA3 4
+# PRED_PATH = Path("outputs/2026-01-22T14:52:22") # DA3 2
+# PRED_PATH = Path("outputs/2026-01-22T15:05:16") # DA3 4
+# PRED_PATH = Path("outputs/2026-01-22T17:05:17") # DA3 4
+# PRED_PATH = Path("outputs/2026-01-22T17:16:15") # DA3 4
+PRED_PATH = Path("outputs/2026-01-22T17:30:28") # DA3 2
+# PRED_PATH = Path("outputs/2026-01-22T17:45:12") # DA3 8
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20

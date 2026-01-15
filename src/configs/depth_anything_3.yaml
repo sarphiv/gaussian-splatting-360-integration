@@ -4,9 +4,9 @@ Weights:
   SALAD: null
 
 Model:
-  chunk_size: 35
-  overlap: 20
-  loop_chunk_size: 20 # imgs of loop chunk = 2 * loop_chunk_size
+  chunk_size: 24
+  overlap: 8
+  loop_chunk_size: 8 # imgs of loop chunk = 2 * loop_chunk_size
   loop_enable: True
   useDBoW: False
   delete_temp_files: True

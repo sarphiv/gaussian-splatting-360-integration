@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from lightning.pytorch import LightningModule
 from joblib import Parallel, delayed
+import numpy as np
 import torch as th
 from torchvision.io import write_png
 from depth_anything_3.da3_streaming import DA3_Streaming
@@ -20,7 +21,9 @@ from utilities.da3_assets import (
     ensure_da3_streaming_assets,
     load_da3_streaming_config,
 )
-from utilities.otc_projector import OTCProjector, cube_face_relative_rotations
+from utilities.cube_projector import CubeProjector
+from utilities.keypoints import keypoints_from_depth
+from utilities.otc_projector import cube_face_relative_rotations
 from utilities.pose import mat_to_quat_xyzw, mean_quaternion_markley, pose_from_center_and_rotation, quat_to_mat_xyzw
 
 PATCH_SIZE = 14
@@ -54,12 +57,16 @@ class Da3PerspectiveTransform(LightningModule):
         self.config_path: Path = Path(config_path)
         self.face_size: int = max(PATCH_SIZE, int(round(face_size / PATCH_SIZE) * PATCH_SIZE))
 
-        self._projector: OTCProjector = OTCProjector(face_size=self.face_size, alpha=1e-9)
+        self._projector: CubeProjector = CubeProjector(
+            face_size=self.face_size,
+            face_up=False,
+            face_down=False,
+        )
 
         self._face_rots: th.Tensor
         self.register_buffer(
             "_face_rots",
-            cube_face_relative_rotations()[[0, 1, 4, 5]],
+            cube_face_relative_rotations()[list(FACE_INDICES)],
             persistent=False,
         )
 
@@ -122,9 +129,25 @@ class Da3PerspectiveTransform(LightningModule):
         assert poses.shape[1] == 16, "Expected flattened 4x4 pose matrices."
         return poses.view(-1, 4, 4)
 
+    @staticmethod
+    def _load_depth_conf(results_dir: Path, num_frames: int) -> tuple[th.Tensor, th.Tensor]:
+        """Load depth and confidence maps from a DA3 results_output folder."""
+        assert results_dir.is_dir(), "DA3 results_output directory missing"
 
-    def _run_da3(self, images: th.Tensor, config: dict[str, Any]) -> th.Tensor:
-        """Run DA3 on a face sequence and return w2c poses."""
+        depths: list[th.Tensor] = []
+        confs: list[th.Tensor] = []
+        for idx in range(num_frames):
+            frame_path = results_dir / f"frame_{idx}.npz"
+            with np.load(frame_path) as data:
+                depths.append(th.from_numpy(data["depth"]).float())
+                confs.append(th.from_numpy(data["conf"]).float())
+
+        depth_stack = th.stack(depths, dim=0).unsqueeze(1)
+        conf_stack = th.stack(confs, dim=0).unsqueeze(1)
+        return depth_stack, conf_stack
+
+    def _run_da3(self, images: th.Tensor, config: dict[str, Any]) -> tuple[th.Tensor, th.Tensor, th.Tensor]:
+        """Run DA3 on a face sequence and return w2c poses plus depth/conf maps."""
         num_frames = images.shape[0]
         with self._temporary_directory() as image_dir, tempfile.TemporaryDirectory() as output_dir:
             self._write_image_sequence(images, Path(image_dir))
@@ -136,12 +159,13 @@ class Da3PerspectiveTransform(LightningModule):
 
             pose_path = Path(output_dir) / "camera_poses.txt"
             c2w = self._load_camera_poses(pose_path, num_frames)
+            depth, conf = self._load_depth_conf(Path(output_dir) / "results_output", num_frames)
 
         del runner
         self._clean_memory()
 
         w2c = th.linalg.inv(c2w)
-        return w2c.to(images)
+        return w2c.to(images), depth, conf
 
     # ------------------------------------------------------------------
     # Projection + merge
@@ -161,12 +185,52 @@ class Da3PerspectiveTransform(LightningModule):
             end = min(start + proj_batch, flat_rgba.shape[0])
             batch = flat_rgba[start:end].to(device=self.device, dtype=cast(th.dtype, self.dtype))
             rgb_faces, alpha_faces, _ = self._projector(batch, depth=None)
-            face_chunks.append((rgb_faces * alpha_faces)[:, FACE_INDICES].to(images))
+            face_chunks.append((rgb_faces * alpha_faces).to(images))
 
         face_stack = th.cat(face_chunks, dim=0)
         face_size = face_stack.shape[-1]
-        faces = face_stack.reshape(seq_len, len(FACE_INDICES), 3, face_size, face_size)
+        faces = face_stack.reshape(seq_len, len(FACE_ORDER), 3, face_size, face_size)
         return faces
+
+    def _inverse_faces(
+        self,
+        face_results: list[tuple[th.Tensor, th.Tensor, th.Tensor]],
+        output_size: tuple[int, int],
+    ) -> tuple[th.Tensor, th.Tensor]:
+        """Project depth/conf faces back to equirectangular tensors in batches."""
+        depth_ref = face_results[0][1]
+        conf_ref = face_results[0][2]
+        batch = depth_ref.shape[0]
+        input_device = depth_ref.device
+        input_dtype = depth_ref.dtype
+        proj_batch = self.projection_batch_size
+        height, width = output_size
+        depth_out = th.empty(
+            (batch, depth_ref.shape[1], height, width),
+            device=input_device,
+            dtype=input_dtype,
+        )
+        conf_out = th.empty(
+            (batch, conf_ref.shape[1], height, width),
+            device=input_device,
+            dtype=input_dtype,
+        )
+
+        for start in range(0, batch, proj_batch):
+            end = min(start + proj_batch, batch)
+            depth_chunk = th.stack(
+                [result[1][start:end] for result in face_results], dim=1
+            ).to(device=self.device, dtype=th.float32)
+            conf_chunk = th.stack(
+                [result[2][start:end] for result in face_results], dim=1
+            ).to(device=self.device, dtype=th.float32)
+            depth_equi, conf_equi = self._projector.inverse(
+                depth_chunk, conf_chunk, output_size=output_size
+            )
+            depth_out[start:end] = depth_equi.detach().to(device=input_device, dtype=input_dtype)
+            conf_out[start:end] = conf_equi.detach().to(device=input_device, dtype=input_dtype)
+
+        return depth_out, conf_out
 
     def _merge_face_poses(self, w2c_faces: th.Tensor) -> th.Tensor:
         """Merge per-face world-to-camera poses into a single panorama pose."""
@@ -199,22 +263,34 @@ class Da3PerspectiveTransform(LightningModule):
     # Core forward
     # ------------------------------------------------------------------
 
-    def forward(self, images: th.Tensor) -> tuple[th.Tensor, None, dict[str, th.Tensor]]:
+    def forward(
+        self, images: th.Tensor
+    ) -> tuple[th.Tensor, list[tuple[th.Tensor, th.Tensor]] | None, dict[str, th.Tensor]]:
         """Estimate panorama poses by projecting faces and fusing DA3 outputs."""
-        if self._assets is None:
-            self._assets = ensure_da3_streaming_assets()
+        self._assets = self._assets or ensure_da3_streaming_assets()
         config = load_da3_streaming_config(self.config_path, self._assets)
 
         faces = self._project_faces(images)
-        face_poses = [
-            self._run_da3(faces[:, i, ...], config)
-            for i in range(len(FACE_ORDER))
-        ]
-
-        w2c_faces = th.stack(face_poses, dim=1)
+        face_results = [self._run_da3(faces[:, i, ...], config) for i in range(len(FACE_ORDER))]
+        w2c_faces = th.stack([result[0] for result in face_results], dim=1)
         merged = self._merge_face_poses(w2c_faces)
 
-        return merged.unsqueeze(0).to(images), None, {
+        height, width = images.shape[-2:]
+        depth_equi_cpu, conf_equi_cpu = self._inverse_faces(
+            face_results, output_size=(height, width)
+        )
+
+        keypoints = keypoints_from_depth(
+            merged.detach().to("cpu").unsqueeze(0),
+            depth_equi_cpu.unsqueeze(0),
+            conf_equi_cpu.unsqueeze(0),
+            image_shape=tuple(images.shape[-2:]), # type: ignore[reportArgumentType]
+            confidence_threshold=10.0,
+            # sample_ratio=0.01
+            sample_ratio=0.1
+        )
+
+        return merged.unsqueeze(0).to(images), keypoints, {
             "pose_faces": w2c_faces.unsqueeze(0).to(images)
         }
 
