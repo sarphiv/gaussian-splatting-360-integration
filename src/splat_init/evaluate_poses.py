@@ -10,7 +10,6 @@ from tqdm import tqdm
 
 from splat_init.data.datamodule_360 import SceneSampleLazy
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset
-from splat_init.data.stanford_2d_3d import Stanford2d3dDataset
 from splat_init.models.da3_perspective_transform import Da3PerspectiveTransform
 from splat_init.models.ground_truth import GroundTruthPose
 from splat_init.models.pycolmap_perspective_transform import PycolmapPerspectiveTransform
@@ -49,6 +48,7 @@ def _end_metrics(
     scene_idx: int,
     sequence_length: int,
     dataset_stride: int,
+    dataset_offset: int,
     dataset_fps: float,
     dataset_image_size: tuple[int, int],
     chunker_chunk_size: int,
@@ -91,6 +91,7 @@ def _end_metrics(
         "scene_idx": scene_idx,
         "sequence_length": sequence_length,
         "dataset_stride": dataset_stride,
+        "dataset_offset": dataset_offset,
         "dataset_fps": dataset_fps,
         "dataset_image_width": int(dataset_width),
         "dataset_image_height": int(dataset_height),
@@ -102,31 +103,9 @@ def _end_metrics(
         "model_name": model_name,
     }
 
-
-def _build_dataset(args: Args) -> ThreeSixtyLocDataset[SceneSampleLazy] | Stanford2d3dDataset[SceneSampleLazy]:
-    if args.data.dataset_name == "stanford_2d_3d":
-        return Stanford2d3dDataset(
-            SceneSampleLazy,
-            args.data.dataset_dir,
-            image_size=args.data.dataset_image_size,
-            perspective_loader_threads=args.data.dataloader_workers
-        )
-    elif args.data.dataset_name == "360_loc":
-        return ThreeSixtyLocDataset(
-            SceneSampleLazy,
-            args.data.dataset_dir,
-            stride=args.data.dataset_stride,
-            depth_required=True,
-            image_size=args.data.dataset_image_size,
-            worker_count=args.data.dataloader_workers
-        )
-    else:
-        raise ValueError(f"Unknown dataset: {args.data.dataset_name}")
-
-
 def _build_model(
     args: Args,
-    dataset: ThreeSixtyLocDataset[SceneSampleLazy] | Stanford2d3dDataset[SceneSampleLazy],
+    dataset: ThreeSixtyLocDataset[SceneSampleLazy],
 ) -> SequenceChunker:
     models = {
         "vggt_perspective_transform": VggtPerspectiveTransform,
@@ -137,9 +116,10 @@ def _build_model(
         "ground_truth": lambda: GroundTruthPose(dataset),
     }
 
+    chunker_args = None if args.model.chunker == (0, 0) else args.model.chunker
     return SequenceChunker(
         model=models[args.model.model](),
-        chunking=args.model.chunker,
+        chunking=chunker_args,
         verbose=True,
     )
 
@@ -152,8 +132,15 @@ def main() -> None:
     th.set_float32_matmul_precision("medium")
     L.seed_everything(args.seed)
 
-    dataset = _build_dataset(args)
-
+    dataset = ThreeSixtyLocDataset(
+        SceneSampleLazy,
+        args.data.dataset_dir,
+        stride=args.data.dataset_stride,
+        offset=args.data.dataset_offset,
+        depth_required=True,
+        image_size=args.data.dataset_image_size,
+        worker_count=args.data.dataloader_workers
+    )
     dtype = th.bfloat16 if args.model.dtype == "bfloat16" else th.float32
     device = "cuda" if th.cuda.is_available() else "cpu"
     model = _build_model(args, dataset).eval().to(device=device, dtype=dtype)
@@ -168,7 +155,6 @@ def main() -> None:
             poses, keypoints, _ = model.forward([scene])
 
         # Metrics end
-        chunker_chunk_size, chunker_chunk_overlap = args.model.chunker or (0, 0)
         metrics = _end_metrics(
             metrics_runtime,
             pose_gt=scene.poses[:],
@@ -176,15 +162,16 @@ def main() -> None:
             scene_idx=scene_idx,
             sequence_length=len(scene),
             dataset_stride=args.data.dataset_stride,
+            dataset_offset=args.data.dataset_offset,
             dataset_fps=args.data.dataset_fps,
             dataset_image_size=args.data.dataset_image_size,
-            chunker_chunk_size=chunker_chunk_size,
-            chunker_chunk_overlap=chunker_chunk_overlap,
+            chunker_chunk_size=args.model.chunker[0],
+            chunker_chunk_overlap=args.model.chunker[1],
             model_name=args.model.model,
         )
 
         # Store
-        output_dir = args.output_dir / scene.id / "poses"
+        output_dir = args.results_dir / scene.id / "poses"
         output_dir.mkdir(parents=True, exist_ok=True)
 
         th.save(poses, output_dir / "poses.pt")

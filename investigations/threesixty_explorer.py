@@ -51,7 +51,9 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2026-01-23T11:41:22") # VGGT Naive 8
 # PRED_PATH = Path("outputs/2026-01-23T11:45:05") # VGGT Naive 4
 # PRED_PATH = Path("outputs/2026-01-23T12:08:19") # VGGT Naive 8
-PRED_PATH = Path("outputs/2026-01-23T15:14:00") # COLMAP 8
+# PRED_PATH = Path("outputs/2026-01-23T15:14:00") # COLMAP 8
+# PRED_PATH = Path("outputs/2026-01-23T20:32:41") # COLMAP 8
+PRED_PATH = Path("outputs/2026-01-24T01:00:13") # ViPE 8
 PRED_IDX = 0
 
 RECONSTRUCT_STRIDE = 20
@@ -92,6 +94,7 @@ dataset_validation = ThreeSixtyLocDataset(
     SceneSample,
     Path(environ.get("DATASET_360_LOC_ROOT", "")),
     stride=cast(int, pred_metrics["dataset_stride"]),
+    offset=cast(int, pred_metrics["dataset_offset"]),
     image_size=dataset_image_size,
     worker_count=DATASET_WORKERS,
 )
@@ -105,9 +108,10 @@ text = (
     f"  - Name: {pred_metrics["model_name"]}\n"
     f"  - Chunker size: {pred_metrics["chunker_chunk_size"]}\n"
     f"  - Chunker overlap: {pred_metrics["chunker_chunk_overlap"]}\n"
-    f"- Scene: {sample_reconstruct.id}\n"
+    f"- Scene: {sample_validation.id}\n"
     f"  - Index: {scene_idx}\n"
     f"  - Stride: {pred_metrics["dataset_stride"]}\n"
+    f"  - Offset: {pred_metrics["dataset_offset"]}\n"
     f"  - Length: {pred_metrics["sequence_length"]}\n"
     f"  - Width: {pred_metrics["dataset_image_width"]}\n"
     f"  - Height: {pred_metrics["dataset_image_height"]}\n"

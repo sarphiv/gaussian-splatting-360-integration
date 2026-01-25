@@ -55,15 +55,12 @@ def _write_cameras_bin(path: Path, width: int, height: int) -> None:
             _write_bytes(fid, float(param), "d")
 
 
-def export_colmap_scene(scene: SceneSampleLazy, eval_dir: Path, output_dir: Path) -> None:
+def export_colmap_scene(output_dir: Path, scene: SceneSampleLazy, poses: th.Tensor, keypoints: list[tuple[th.Tensor, th.Tensor]]) -> None:
     """Export predicted poses/keypoints for a scene into COLMAP binary format."""
     images_dir = output_dir / "images"
     sparse_dir = output_dir / "sparse" / "0"
     images_dir.mkdir(parents=True, exist_ok=True)
     sparse_dir.mkdir(parents=True, exist_ok=True)
-
-    poses = th.load(eval_dir / scene.id / "poses" / "poses.pt", map_location="cpu").numpy()
-    keypoints = th.load(eval_dir / scene.id / "poses" / "keypoints.pt", map_location="cpu")
 
     sequence_length = poses.shape[0]
     assert len(scene) == sequence_length, "Scene length mismatch with poses"
@@ -115,7 +112,7 @@ def export_colmap_scene(scene: SceneSampleLazy, eval_dir: Path, output_dir: Path
                 rgb_uint8 = rgb_uint8_batch[batch_idx]
                 image_name = f"frame_{frame_idx:06d}.png"
 
-                pose = poses[frame_idx]
+                pose = poses[frame_idx].numpy()
                 rot = pose[:3, :3]
                 tvec = pose[:3, 3]
                 qvec = -_rotmat2qvec(rot)

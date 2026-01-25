@@ -1,25 +1,3 @@
-"""360° Panorama Lightning DataModule and shared sample type.
-
-This module provides a DataModule for 360° panorama datasets that yield one
-sample per room (multiple views per room). Batches are lists of such room
-samples. The DataModule is data-oriented, stage-agnostic beyond PyTorch
-Lightning's standard setup stages, and aims for deterministic shuffling.
-
-Conventions
-- A dataset item is a ``SceneSample`` with fields:
-  - id:    e.g. ``stanford-2d-3d/area-1/conference-room-1``
-  - rgba:  uint8 tensor ``[S, 4, H, W]`` (RGBA; A masks cutouts)
-  - depth: float32 tensor ``[S, 1, H, W]``
-  - pose:  float32 tensor ``[S, 4, 4]``
-- A DataModule batch is a Python list[SceneSample]. The collate function can
-  optionally apply a transform to each element.
-
-Determinism
-- Shuffling uses a seeded ``torch.Generator``. Worker seeding initializes
-  Python's ``random``, ``numpy``, and ``torch`` RNGs with a deterministic
-  per-worker seed derived from the base seed.
-"""
-
 from __future__ import annotations
 
 from dataclasses import dataclass

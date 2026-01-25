@@ -9,18 +9,18 @@ from torchvision.transforms.functional import resize, InterpolationMode
 from torch.utils.data import IterableDataset
 from torchvision.io import decode_image, ImageReadMode
 from joblib import Parallel, delayed
-from loguru import logger
 
 from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
 
 
 class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]):
-    def __init__(self, output_type: type[T], data_dir: Path, stride: int = 1, depth_required: bool = True, image_size: tuple[int, int] = (6144, 3072), worker_count: int = 1) -> None:
+    def __init__(self, output_type: type[T], data_dir: Path, stride: int = 1, offset: int = 0, depth_required: bool = True, image_size: tuple[int, int] = (6144, 3072), worker_count: int = 1) -> None:
         super().__init__()
 
         self.output_type = output_type
         self.data_dir = data_dir
         self.stride = stride
+        self.offset = offset
         self.depth_only = depth_required
         self.image_size = image_size # Width x Height
         self.worker_count = worker_count
@@ -32,18 +32,18 @@ class ThreeSixtyLocDataset[T: (SceneSample, SceneSampleLazy)](IterableDataset[T]
 
         self.scene_ids = [f"360-loc.{seq_dir.parent.parent.name}.{seq_dir.name.replace('_', '-')}" for seq_dir in scene_dirs]
         self.rgb_paths = {
-            id: sorted((seq_dir / "image").glob("*.jpg"))[::self.stride]
+            id: sorted((seq_dir / "image").glob("*.jpg"))[self.offset::self.stride]
             for id, seq_dir
             in zip(self.scene_ids, scene_dirs)
         }
         self.depth_paths = {
-            id: (sorted((seq_dir / "depth").glob("*.png"))[::self.stride] if (seq_dir / "depth").is_dir() else [None] * len(self.rgb_paths[id]))
+            id: (sorted((seq_dir / "depth").glob("*.png"))[self.offset::self.stride] if (seq_dir / "depth").is_dir() else [None] * len(self.rgb_paths[id]))
             for id, seq_dir
             in zip(self.scene_ids, scene_dirs)
         }
         # Read poses as world to camera matrices
         self.poses = {
-            id: [th.tensor(v).inverse() for _, v in sorted(json.loads((seq_dir / "camera_pose.json").read_text()).items(), key=lambda kv: kv[0])][::self.stride]
+            id: [th.tensor(v).inverse() for _, v in sorted(json.loads((seq_dir / "camera_pose.json").read_text()).items(), key=lambda kv: kv[0])][self.offset::self.stride]
             for id, seq_dir
             in zip(self.scene_ids, scene_dirs)
         }

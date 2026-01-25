@@ -29,6 +29,7 @@ dependencies = [
     "pyqt5>=5.15.11",
     "pyceres>=2.6",
     "pycolmap-cuda12>=3.13.0",
+    "torchmetrics[image]>=1.8.2",
 ]
 
 [project.scripts]

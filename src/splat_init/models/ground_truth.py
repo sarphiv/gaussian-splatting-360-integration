@@ -8,7 +8,6 @@ import torch as th
 from lightning.pytorch import LightningModule
 
 from splat_init.data.datamodule_360 import SceneSample, SceneSampleLazy
-from splat_init.data.stanford_2d_3d import Stanford2d3dDataset
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset
 from utilities.keypoints import sample_keypoints_from_depth
 
@@ -18,7 +17,7 @@ class GroundTruthPose(LightningModule):
 
     def __init__(
         self,
-        dataset: ThreeSixtyLocDataset[SceneSampleLazy] | Stanford2d3dDataset[SceneSampleLazy],
+        dataset: ThreeSixtyLocDataset[SceneSampleLazy],
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["dataset"])
