@@ -53,8 +53,9 @@ from utilities.pose import procrustes_transform
 # PRED_PATH = Path("outputs/2026-01-23T12:08:19") # VGGT Naive 8
 # PRED_PATH = Path("outputs/2026-01-23T15:14:00") # COLMAP 8
 # PRED_PATH = Path("outputs/2026-01-23T20:32:41") # COLMAP 8
-PRED_PATH = Path("outputs/2026-01-24T01:00:13") # ViPE 8
-PRED_IDX = 0
+# PRED_PATH = Path("outputs/2026-01-24T01:00:13") # ViPE 8
+PRED_PATH = Path("outputs/pycolmap_perspective_transform-2")
+PRED_IDX = 2
 
 RECONSTRUCT_STRIDE = 20
 POINTS_STRIDE = 8

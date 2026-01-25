@@ -33,30 +33,30 @@ class Args:
         # ExperimentArgs("ground_truth", (0, 0), 4),
         # ExperimentArgs("ground_truth", (0, 0), 2),
 
-        ExperimentArgs("pycolmap_perspective_transform", (0, 0), 4),
-        # ExperimentArgs("pycolmap_perspective_transform", (0, 0), 8),
         # ExperimentArgs("pycolmap_perspective_transform", (0, 0), 16),
+        # ExperimentArgs("pycolmap_perspective_transform", (0, 0), 8),
+        # ExperimentArgs("pycolmap_perspective_transform", (0, 0), 4),
         # ExperimentArgs("pycolmap_perspective_transform", (0, 0), 2),
 
-        # ExperimentArgs("vipe_panorama", (48, 8), 16),
-        # ExperimentArgs("vipe_panorama", (48, 8), 8),
-        # ExperimentArgs("vipe_panorama", (48, 8), 4),
-        # ExperimentArgs("vipe_panorama", (48, 8), 2),
+        ExperimentArgs("vipe_panorama", (48, 8), 16),
+        ExperimentArgs("vipe_panorama", (48, 8), 8),
+        ExperimentArgs("vipe_panorama", (48, 8), 4),
+        ExperimentArgs("vipe_panorama", (48, 8), 2),
 
-        # ExperimentArgs("da3_perspective_transform", (0, 0), 16),
-        # ExperimentArgs("da3_perspective_transform", (0, 0), 8),
-        # ExperimentArgs("da3_perspective_transform", (0, 0), 4),
-        # ExperimentArgs("da3_perspective_transform", (0, 0), 2),
+        ExperimentArgs("da3_perspective_transform", (0, 0), 16),
+        ExperimentArgs("da3_perspective_transform", (0, 0), 8),
+        ExperimentArgs("da3_perspective_transform", (0, 0), 4),
+        ExperimentArgs("da3_perspective_transform", (0, 0), 2),
 
-        # ExperimentArgs("vggt_perspective_transform", (14, 6), 16),
-        # ExperimentArgs("vggt_perspective_transform", (14, 6), 8),
-        # ExperimentArgs("vggt_perspective_transform", (14, 6), 4),
-        # ExperimentArgs("vggt_perspective_transform", (14, 6), 2),
+        ExperimentArgs("vggt_perspective_transform", (14, 6), 16),
+        ExperimentArgs("vggt_perspective_transform", (14, 6), 8),
+        ExperimentArgs("vggt_perspective_transform", (14, 6), 4),
+        ExperimentArgs("vggt_perspective_transform", (14, 6), 2),
 
-        # ExperimentArgs("vggt_naive_equirectangular", (96, 16), 16),
-        # ExperimentArgs("vggt_naive_equirectangular", (96, 16), 8),
-        # ExperimentArgs("vggt_naive_equirectangular", (96, 16), 4),
-        # ExperimentArgs("vggt_naive_equirectangular", (96, 16), 2),
+        ExperimentArgs("vggt_naive_equirectangular", (96, 16), 16),
+        ExperimentArgs("vggt_naive_equirectangular", (96, 16), 8),
+        ExperimentArgs("vggt_naive_equirectangular", (96, 16), 4),
+        ExperimentArgs("vggt_naive_equirectangular", (96, 16), 2),
     ])
 
 

@@ -377,19 +377,22 @@ class PycolmapPerspectiveTransform(LightningModule):
         translations = w2c_faces[:, :, :3, 3]
 
         centers = -(rotations.transpose(-1, -2) @ translations.unsqueeze(-1)).squeeze(-1)
-        counts = valid_mask.sum(dim=1)
-        assert th.all(counts > 0), "No valid face poses for one or more frames."
+        invalid_mask = ~valid_mask.any(dim=1)
+        if invalid_mask.any():
+            invalid_indices = invalid_mask.nonzero(as_tuple=False).flatten().cpu().tolist()
+            logger.warning("Failed frame idx: {}", ",".join(str(idx) for idx in invalid_indices))
+
         weights = valid_mask.to(dtype)
-        weights = weights / weights.sum(dim=1, keepdim=True)
+        weights = weights / weights.sum(dim=1, keepdim=True).clamp_min(1.0)
+        weights = weights.masked_fill(invalid_mask[:, None], 1.0 / weights.shape[1])
         centers_merged = (centers * weights.unsqueeze(-1)).sum(dim=1)
 
         quats = mat_to_quat_xyzw(rotations)
         merged_quat = mean_quaternion_markley(quats, weights=weights)
         merged_rot = quat_to_mat_xyzw(merged_quat)
 
-        ref_idx = int(th.nonzero(counts > 0, as_tuple=False)[0].item())
-        ref_rot = merged_rot[ref_idx]
-        ref_center = centers_merged[ref_idx]
+        ref_rot = merged_rot[0]
+        ref_center = centers_merged[0]
         rel_rot = merged_rot @ ref_rot.transpose(-1, -2)
         rel_centers = centers_merged - ref_center
         rel_centers = (ref_rot @ rel_centers.unsqueeze(-1)).squeeze(-1)
