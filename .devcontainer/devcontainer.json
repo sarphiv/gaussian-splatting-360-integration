@@ -12,7 +12,8 @@
             "extensions": [
                 "ms-python.python",
                 "ms-toolsai.jupyter",
-                "openai.chatgpt"
+                "openai.chatgpt",
+                "myriad-dreamin.tinymist"
             ],
             "settings": {
                 "python.defaultInterpreterPath": ".venv/bin/python3",

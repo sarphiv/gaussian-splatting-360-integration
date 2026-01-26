@@ -13,7 +13,7 @@ class DataArgs:
 
 @dataclass(frozen=True)
 class Args:
-    results_dir: Path = Path("outputs/2026-01-24T01:00:13")
+    results_dir: Path = Path("outputs/vggt_perspective_transform-8")
     data: DataArgs = DataArgs()
 
 

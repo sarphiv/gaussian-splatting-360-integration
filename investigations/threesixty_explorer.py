@@ -12,8 +12,15 @@ import numpy as np
 from splat_init.data.threesixty_loc import ThreeSixtyLocDataset, SceneSample, SceneSampleLazy
 from utilities.pose import procrustes_transform
 
-PRED_PATH = Path("outputs/da3_perspective_transform-2")
-PRED_IDX = 2
+# PRED_PATH = Path("outputs/ground_truth-8")
+# PRED_PATH = Path("outputs/pycolmap_perspective_transform-8")
+# PRED_PATH = Path("outputs/vggt_naive_equirectangular-8")
+# PRED_PATH = Path("outputs/vggt_perspective_transform-8")
+# PRED_PATH = Path("outputs/da3_perspective_transform-8")
+PRED_PATH = Path("outputs/vipe_panorama-8")
+PRED_IDX = 3
+RECONSTRUCT_ENABLED = False
+KEYPOINTS_ENABLED = True
 
 RECONSTRUCT_STRIDE = 20
 POINTS_STRIDE = 8
@@ -149,56 +156,58 @@ for seq_idx in range(len(pred_aligned_c2w)):
     rr.log(f"world/error/main/{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_main, origins=pos_main, colors=COLOR_ERROR, radii=SIZE_ERROR / 2, labels=[f"{pos_error:.3f}m"], show_labels=ERROR_LABELS_ENABLED))
 
 
-# # Reconstruct environment
-# dataset_reconstruct = ThreeSixtyLocDataset(
-#     SceneSample,
-#     Path(environ.get("DATASET_360_LOC_ROOT", "")),
-#     stride=RECONSTRUCT_STRIDE,
-#     worker_count=DATASET_WORKERS,
-# )
-# sample_reconstruct = dataset_reconstruct[scene_idx]
+# Reconstruct environment
+if RECONSTRUCT_ENABLED:
+    dataset_reconstruct = ThreeSixtyLocDataset(
+        SceneSample,
+        Path(environ.get("DATASET_360_LOC_ROOT", "")),
+        stride=RECONSTRUCT_STRIDE,
+        worker_count=DATASET_WORKERS,
+    )
+    sample_reconstruct = dataset_reconstruct[scene_idx]
 
-# for seq_idx in range(len(sample_reconstruct.pose)):
-#     # Retrieve data
-#     pose = sample_reconstruct.pose[seq_idx].inverse()
-#     pos, rot = pose[:3, 3], pose[:3, :3]
+    for seq_idx in range(len(sample_reconstruct.pose)):
+        # Retrieve data
+        pose = sample_reconstruct.pose[seq_idx].inverse()
+        pos, rot = pose[:3, 3], pose[:3, :3]
 
-#     rgb = sample_reconstruct.rgba[seq_idx].permute(1, 2, 0).numpy()
-#     height, width = rgb.shape[:2]
-#     depth = sample_reconstruct.depth[seq_idx, 0].numpy()
+        rgb = sample_reconstruct.rgba[seq_idx].permute(1, 2, 0).numpy()
+        height, width = rgb.shape[:2]
+        depth = sample_reconstruct.depth[seq_idx, 0].numpy()
 
-#     # Create point cloud
-#     d = depth[::POINTS_STRIDE, ::POINTS_STRIDE].reshape(-1)
-#     v = (np.arange(0, height, POINTS_STRIDE, dtype=np.float32) + 0.5) / height
-#     u = (np.arange(0, width, POINTS_STRIDE, dtype=np.float32) + 0.5) / width
-#     lat, lon = np.meshgrid(
-#         -np.pi / 2 + np.pi * v,
-#         -np.pi + 2 * np.pi * u,
-#         indexing="ij",
-#     )
-#     lat, lon = lat.reshape(-1), lon.reshape(-1)
-#     x = d * np.cos(lat) * np.sin(lon)
-#     y = d * np.sin(lat)
-#     z = d * np.cos(lat) * np.cos(lon)
+        # Create point cloud
+        d = depth[::POINTS_STRIDE, ::POINTS_STRIDE].reshape(-1)
+        v = (np.arange(0, height, POINTS_STRIDE, dtype=np.float32) + 0.5) / height
+        u = (np.arange(0, width, POINTS_STRIDE, dtype=np.float32) + 0.5) / width
+        lat, lon = np.meshgrid(
+            -np.pi / 2 + np.pi * v,
+            -np.pi + 2 * np.pi * u,
+            indexing="ij",
+        )
+        lat, lon = lat.reshape(-1), lon.reshape(-1)
+        x = d * np.cos(lat) * np.sin(lon)
+        y = d * np.sin(lat)
+        z = d * np.cos(lat) * np.cos(lon)
 
-#     points = np.stack((x, y, z), axis=-1)
-#     colors = rgb[::POINTS_STRIDE, ::POINTS_STRIDE, :].reshape(-1, 4)
+        points = np.stack((x, y, z), axis=-1)
+        colors = rgb[::POINTS_STRIDE, ::POINTS_STRIDE, :].reshape(-1, 4)
 
-#     # Log environment
-#     rr.log(f"world/env/{seq_idx}", rr.Transform3D(translation=pos, mat3x3=rot))
-#     rr.log(f"world/env/{seq_idx}/points", rr.Points3D(points, colors=colors))
+        # Log environment
+        rr.log(f"world/env/{seq_idx}", rr.Transform3D(translation=pos, mat3x3=rot))
+        rr.log(f"world/env/{seq_idx}/points", rr.Points3D(points, colors=colors))
 
 
-# # Keypoints
-# rgb = sample_validation[:].rgba
-# for seq_idx in range(len(pred_keypoints)):
-#     rgb_kp = rgb[seq_idx].permute(1, 2, 0).numpy()
-#     xy = pred_keypoints[seq_idx][0].to(dtype=th.int32)
-#     xyz = align(pred_keypoints[seq_idx][1].permute(1, 0), None)[0].numpy()
-#     rr.log(
-#         f"world/key/{seq_idx}",
-#         rr.Points3D(
-#             xyz,
-#             colors=rgb_kp[xy[1], xy[0], :]
-#         )
-#     )
+# Keypoints
+if KEYPOINTS_ENABLED:
+    rgb = sample_validation[:].rgba
+    for seq_idx in range(len(pred_keypoints)):
+        rgb_kp = rgb[seq_idx].permute(1, 2, 0).numpy()
+        xy = pred_keypoints[seq_idx][0].to(dtype=th.int32)
+        xyz = align(pred_keypoints[seq_idx][1].permute(1, 0), None)[0].numpy()
+        rr.log(
+            f"world/key/{seq_idx}",
+            rr.Points3D(
+                xyz,
+                colors=rgb_kp[xy[1], xy[0], :]
+            )
+        )

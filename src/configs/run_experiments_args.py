@@ -24,9 +24,10 @@ class Args:
     output_dir: Path = Path("outputs")
 
     evaluate_poses: bool = False
-    train_splats: bool = True
+    train_splats: bool = False
     evaluate_splats: bool = True
 
+    # uv run src/splat_init/run_experiments.py 2>&1 | tee outputs/stdout.txt
     experiments: list[ExperimentArgs] = field(default_factory=lambda: [
         ExperimentArgs("ground_truth", (0, 0), 16),
         ExperimentArgs("ground_truth", (0, 0), 8),
