@@ -8,53 +8,11 @@ import rerun as rr
 import rerun.blueprint as rrb
 import torch as th
 import numpy as np
-# import cv2
 
-from splat_init.data.threesixty_loc import ThreeSixtyLocDataset, SceneSample
+from splat_init.data.threesixty_loc import ThreeSixtyLocDataset, SceneSample, SceneSampleLazy
 from utilities.pose import procrustes_transform
 
-
-# PRED_PATH = Path("outputs/2025-11-27T03:39:14") # VGGT Perspective barely works
-# PRED_PATH = Path("outputs/2025-11-27T04:23:25")
-# PRED_PATH = Path("outputs/2025-11-27T05:34:31") # ViPE 4
-# PRED_PATH = Path("outputs/2025-11-27T07:26:26") # VGGT Perspective 8
-# PRED_PATH = Path("outputs/2026-01-02T23:43:28") # DA3 Perspective 8
-# PRED_PATH = Path("outputs/2026-01-04T00:47:42") # DA3 Perspective 1 (subset 1)
-# PRED_PATH = Path("outputs/2026-01-04T01:33:15") # DA3 Perspective 4 (subset 1)
-# PRED_PATH = Path("outputs/2026-01-04T19:28:26") # DA3 Perspective 8 #2
-# PRED_PATH = Path("outputs/2026-01-04T19:57:45") # DA3 Perspective 8 #3
-# PRED_PATH = Path("outputs/2026-01-04T20:19:45") # DA3 Perspective 8 #4
-# PRED_PATH = Path("outputs/2026-01-04T20:30:35") # DA3 Perspective 8 #5
-# PRED_PATH = Path("outputs/2026-01-04T20:39:19") # DA3 Perspective 4
-# PRED_PATH = Path("outputs/2026-01-04T21:12:24") # DA3 Perspective 1
-# PRED_PATH = Path("outputs/2026-01-04T23:34:12") # DA3 Perspective 4 #2
-# PRED_PATH = Path("outputs/2026-01-05T01:40:39") # COLMAP Perspective 8 lax
-# PRED_PATH = Path("outputs/2026-01-05T01:40:39") # COLMAP Perspective 8
-# PRED_PATH = Path("outputs/2026-01-05T02:00:04") # COLMAP Perspective 8 ext
-# PRED_PATH = Path("outputs/2026-01-05T02:08:00") # COLMAP Perspective 4 ext
-# PRED_PATH = Path("outputs/2026-01-15T22:14:20") # Ground Truth 4
-# PRED_PATH = Path("outputs/2026-01-20T12:10:18") # ViPE 4
-# PRED_PATH = Path("outputs/2026-01-20T15:51:04") # ViPE 4
-# PRED_PATH = Path("outputs/2026-01-20T17:45:21") # DA3 4
-# PRED_PATH = Path("outputs/2026-01-22T14:52:22") # DA3 2
-# PRED_PATH = Path("outputs/2026-01-22T15:05:16") # DA3 4
-# PRED_PATH = Path("outputs/2026-01-22T17:05:17") # DA3 4
-# PRED_PATH = Path("outputs/2026-01-22T17:16:15") # DA3 4
-# PRED_PATH = Path("outputs/2026-01-22T17:30:28") # DA3 2
-# PRED_PATH = Path("outputs/2026-01-22T17:45:12") # DA3 8
-# PRED_PATH = Path("outputs/2026-01-22T19:07:16") # COLMAP 8
-# PRED_PATH = Path("outputs/2026-01-22T19:38:57") # COLMAP 8
-# PRED_PATH = Path("outputs/2026-01-23T10:44:31") # COLMAP 8
-# PRED_PATH = Path("outputs/2026-01-23T11:13:29") # VGGT Persp 8
-# PRED_PATH = Path("outputs/2026-01-23T11:19:18") # VGGT Persp 4
-# PRED_PATH = Path("outputs/2026-01-23T11:28:07") # VGGT Persp 16
-# PRED_PATH = Path("outputs/2026-01-23T11:41:22") # VGGT Naive 8
-# PRED_PATH = Path("outputs/2026-01-23T11:45:05") # VGGT Naive 4
-# PRED_PATH = Path("outputs/2026-01-23T12:08:19") # VGGT Naive 8
-# PRED_PATH = Path("outputs/2026-01-23T15:14:00") # COLMAP 8
-# PRED_PATH = Path("outputs/2026-01-23T20:32:41") # COLMAP 8
-# PRED_PATH = Path("outputs/2026-01-24T01:00:13") # ViPE 8
-PRED_PATH = Path("outputs/pycolmap_perspective_transform-2")
+PRED_PATH = Path("outputs/da3_perspective_transform-2")
 PRED_IDX = 2
 
 RECONSTRUCT_STRIDE = 20
@@ -70,8 +28,6 @@ COLOR_GT = [0.0, 1.0, 0.0]
 COLOR_PRED = [1.0, 1.0, 0.0]
 COLOR_ERROR = [1.0, 0.0, 0.0]
 
-
-
 # TODO: Refactor perspective directions to x right, y up, z backward
 
 pred_scene_path = sorted(p for p in PRED_PATH.iterdir() if p.is_dir())[PRED_IDX]
@@ -84,24 +40,26 @@ dataset_image_width = int(pred_metrics.get("dataset_image_width", EQUIRECT_SHAPE
 dataset_image_height = int(pred_metrics.get("dataset_image_height", EQUIRECT_SHAPE[1]))
 dataset_image_size = (dataset_image_width, dataset_image_height)
 
-# NOTE: Depth is required, so many scenes are filtered out
-dataset_reconstruct = ThreeSixtyLocDataset(
-    SceneSample,
-    Path(environ.get("DATASET_360_LOC_ROOT", "")),
-    stride=RECONSTRUCT_STRIDE,
-    worker_count=DATASET_WORKERS,
-)
 dataset_validation = ThreeSixtyLocDataset(
-    SceneSample,
+    SceneSampleLazy,
     Path(environ.get("DATASET_360_LOC_ROOT", "")),
     stride=cast(int, pred_metrics["dataset_stride"]),
     offset=cast(int, pred_metrics["dataset_offset"]),
     image_size=dataset_image_size,
     worker_count=DATASET_WORKERS,
 )
-sample_reconstruct = dataset_reconstruct[scene_idx]
 sample_validation = dataset_validation[scene_idx]
-gt_poses_w2c = dataset_validation.load_poses(scene_idx)
+gt_poses_w2c = sample_validation.poses[:]
+assert len(pred_poses_w2c) == len(gt_poses_w2c)
+pred_aligned_w2c, align = procrustes_transform(
+    pred_poses_w2c,
+    gt_poses_w2c,
+    pred_poses_w2c,
+    allow_scale=True,
+)
+pred_aligned_c2w = pred_aligned_w2c.inverse()
+gt_poses_c2w = gt_poses_w2c.inverse()
+
 
 # Metrics text
 text = (
@@ -156,7 +114,50 @@ rr.set_time("time", timestamp=0)
 # Log metrics
 rr.log("info", rr.TextDocument(text=text, media_type=rr.MediaType.MARKDOWN))
 
+# Poses
+pos_gt_prev = None
+pos_pred_prev = None
+for seq_idx in range(len(pred_aligned_c2w)):
+    pose_gt = gt_poses_c2w[seq_idx]
+    pos_gt, rot_gt = pose_gt[:3, 3], pose_gt[:3, :3]
+
+    # Log ground truth
+    rr.log(f"world/gt/{seq_idx}", rr.Transform3D(translation=pos_gt, mat3x3=rot_gt))
+    rr.log(f"world/gt/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_GT, radii=SIZE_GT))
+    rr.log(f"world/gt/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_GT * 10))
+    rr.log(f"world/gt/{seq_idx}/image/rgb", rr.Image(np.tile(np.array(COLOR_GT), (EQUIRECT_SHAPE[1], EQUIRECT_SHAPE[0], 1)), color_model=rr.ColorModel.RGB))
+
+    if pos_gt_prev is not None:
+        rr.log(f"world/gt/traj/{seq_idx-1}-{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_gt_prev, origins=pos_gt_prev, colors=COLOR_GT, radii=SIZE_GT / 2))
+    pos_gt_prev = pos_gt
+
+
+    # Log main prediction
+    pose_main = pred_aligned_c2w[seq_idx]
+    pos_main, rot_main = pose_main[:3, 3], pose_main[:3, :3]
+    pos_error = th.linalg.norm(pos_gt - pos_main).item()
+
+    rr.log(f"world/pred/main/{seq_idx}", rr.Transform3D(translation=pos_main, mat3x3=rot_main))
+    rr.log(f"world/pred/main/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_PRED, radii=SIZE_PRED))
+    rr.log(f"world/pred/main/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_PRED * 10))
+    rr.log(f"world/pred/main/{seq_idx}/image/rgb", rr.Image(np.tile(np.array(COLOR_PRED), (EQUIRECT_SHAPE[1], EQUIRECT_SHAPE[0], 1)), color_model=rr.ColorModel.RGB))
+    
+    if pos_pred_prev is not None:
+        rr.log(f"world/pred/main/traj/{seq_idx-1}-{seq_idx}", rr.Arrows3D(vectors=pos_main - pos_pred_prev, origins=pos_pred_prev, colors=COLOR_PRED, radii=SIZE_PRED / 2))
+    pos_pred_prev = pos_main
+
+    rr.log(f"world/error/main/{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_main, origins=pos_main, colors=COLOR_ERROR, radii=SIZE_ERROR / 2, labels=[f"{pos_error:.3f}m"], show_labels=ERROR_LABELS_ENABLED))
+
+
 # # Reconstruct environment
+# dataset_reconstruct = ThreeSixtyLocDataset(
+#     SceneSample,
+#     Path(environ.get("DATASET_360_LOC_ROOT", "")),
+#     stride=RECONSTRUCT_STRIDE,
+#     worker_count=DATASET_WORKERS,
+# )
+# sample_reconstruct = dataset_reconstruct[scene_idx]
+
 # for seq_idx in range(len(sample_reconstruct.pose)):
 #     # Retrieve data
 #     pose = sample_reconstruct.pose[seq_idx].inverse()
@@ -188,67 +189,16 @@ rr.log("info", rr.TextDocument(text=text, media_type=rr.MediaType.MARKDOWN))
 #     rr.log(f"world/env/{seq_idx}/points", rr.Points3D(points, colors=colors))
 
 
-sequence_len = min(len(pred_poses_w2c), len(gt_poses_w2c))
-pred_poses_w2c = pred_poses_w2c[:sequence_len]
-gt_poses_w2c = gt_poses_w2c[:sequence_len]
-
-pred_aligned_w2c, align = procrustes_transform(
-    pred_poses_w2c,
-    gt_poses_w2c,
-    pred_poses_w2c,
-    allow_scale=True,
-)
-pred_aligned_c2w = pred_aligned_w2c.inverse()
-gt_poses_c2w = gt_poses_w2c.inverse()
-
-pos_gt_prev = None
-pos_pred_prev = None
-
-
-# Log keypoints
-for seq_idx in range(len(sample_validation.pose)):
-    rgb_kp = sample_validation.rgba[seq_idx].permute(1, 2, 0).numpy()
-    xy = pred_keypoints[seq_idx][0].to(dtype=th.int32)
-    xyz = align(pred_keypoints[seq_idx][1].permute(1, 0), None)[0].numpy()
-    rr.log(
-        f"world/key/{seq_idx}",
-        rr.Points3D(
-            xyz,
-            colors=rgb_kp[xy[1], xy[0], :]
-        )
-    )
-
-# Log poses
-for seq_idx in range(sequence_len):
-    pose_gt = gt_poses_c2w[seq_idx]
-    pos_gt, rot_gt = pose_gt[:3, 3], pose_gt[:3, :3]
-    # rgb = sample_gt.rgba[seq_idx].permute(1, 2, 0).numpy()
-    # rgb = dataset_full.load_rgba(SCENE_IDX, seq_idx).permute(1, 2, 0).numpy()
-
-    # Log ground truth
-    rr.log(f"world/gt/{seq_idx}", rr.Transform3D(translation=pos_gt, mat3x3=rot_gt))
-    rr.log(f"world/gt/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_GT, radii=SIZE_GT))
-    rr.log(f"world/gt/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_GT * 10))
-    # rr.log(f"world/gt/{seq_idx}/image/rgb", rr.Image(cv2.resize(rgb, dsize=EQUIRECT_SHAPE, interpolation=cv2.INTER_LINEAR), color_model=rr.ColorModel.RGBA)) # type: ignore[reportArgumentType]
-    rr.log(f"world/gt/{seq_idx}/image/rgb", rr.Image(np.tile(np.array(COLOR_GT), (EQUIRECT_SHAPE[1], EQUIRECT_SHAPE[0], 1)), color_model=rr.ColorModel.RGB))
-
-    if pos_gt_prev is not None:
-        rr.log(f"world/gt/traj/{seq_idx-1}-{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_gt_prev, origins=pos_gt_prev, colors=COLOR_GT, radii=SIZE_GT / 2))
-    pos_gt_prev = pos_gt
-
-
-    # Log main prediction
-    pose_main = pred_aligned_c2w[seq_idx]
-    pos_main, rot_main = pose_main[:3, 3], pose_main[:3, :3]
-    pos_error = th.linalg.norm(pos_gt - pos_main).item()
-
-    rr.log(f"world/pred/main/{seq_idx}", rr.Transform3D(translation=pos_main, mat3x3=rot_main))
-    rr.log(f"world/pred/main/{seq_idx}/pos", rr.Points3D(positions=[0.0, 0.0, 0.0], colors=COLOR_PRED, radii=SIZE_PRED))
-    rr.log(f"world/pred/main/{seq_idx}/image", rr.Pinhole(resolution=EQUIRECT_SHAPE, focal_length=EQUIRECT_SHAPE[0], image_plane_distance=SIZE_PRED * 10))
-    rr.log(f"world/pred/main/{seq_idx}/image/rgb", rr.Image(np.tile(np.array(COLOR_PRED), (EQUIRECT_SHAPE[1], EQUIRECT_SHAPE[0], 1)), color_model=rr.ColorModel.RGB))
-    
-    if pos_pred_prev is not None:
-        rr.log(f"world/pred/main/traj/{seq_idx-1}-{seq_idx}", rr.Arrows3D(vectors=pos_main - pos_pred_prev, origins=pos_pred_prev, colors=COLOR_PRED, radii=SIZE_PRED / 2))
-    pos_pred_prev = pos_main
-
-    rr.log(f"world/error/main/{seq_idx}", rr.Arrows3D(vectors=pos_gt - pos_main, origins=pos_main, colors=COLOR_ERROR, radii=SIZE_ERROR / 2, labels=[f"{pos_error:.3f}m"], show_labels=ERROR_LABELS_ENABLED))
+# # Keypoints
+# rgb = sample_validation[:].rgba
+# for seq_idx in range(len(pred_keypoints)):
+#     rgb_kp = rgb[seq_idx].permute(1, 2, 0).numpy()
+#     xy = pred_keypoints[seq_idx][0].to(dtype=th.int32)
+#     xyz = align(pred_keypoints[seq_idx][1].permute(1, 0), None)[0].numpy()
+#     rr.log(
+#         f"world/key/{seq_idx}",
+#         rr.Points3D(
+#             xyz,
+#             colors=rgb_kp[xy[1], xy[0], :]
+#         )
+#     )

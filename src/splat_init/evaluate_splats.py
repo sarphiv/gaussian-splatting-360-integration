@@ -6,6 +6,7 @@ from typing import cast
 from joblib import Parallel, delayed
 import torch as th
 import tyro
+from loguru import logger
 from torchvision.io import decode_image, ImageReadMode
 from tqdm import tqdm
 from torchmetrics.functional.image import (
@@ -130,6 +131,10 @@ def _run_scene(
 ) -> None:
     """Evaluate all splat images for a single scene."""
     splat_dir = scene_dir / "splat"
+    if not splat_dir.is_dir():
+        logger.info(f"Splat directory not found, skipping: {scene_dir}")
+        return
+
     records: list[EvalRecord] = []
     for path in sorted(splat_dir.glob(f"{EVAL_DIR_PREFIX}*/*.png")):
         step = path.parent.name.removeprefix("eval_")

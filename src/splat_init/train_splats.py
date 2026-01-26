@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import torch as th
 import tyro
 from tqdm import tqdm
+from loguru import logger
 
 from configs.train_splats_args import Args
 from splat_init.data.datamodule_360 import SceneSampleLazy
@@ -22,6 +23,7 @@ POSES_DIRNAME = "poses"
 POSES_FILE = "poses.pt"
 KEYPOINTS_FILE = "keypoints.pt"
 METRICS_FILE = "metrics.pt"
+ACCEPTANCE_MARKER_FILES = ("okay.txt", "train.txt")
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LICHTFELD_BINARY = PROJECT_ROOT / "vendor" / "lichtfeld-studio" / "build" / "LichtFeld-Studio"
@@ -75,6 +77,10 @@ def main() -> None:
         assert scene.id == scene_dir.name, "Scene ID mismatch between dataset and results directory."
         pbar.set_postfix({"scene_id": scene.id})
 
+        if not any((scene_dir / POSES_DIRNAME / marker_file).is_file() for marker_file in ACCEPTANCE_MARKER_FILES):
+            logger.info(f"Skipping scene {scene.id} because it lacks an acceptance marker.")
+            continue
+
         gt_poses = scene.poses[:]
         gt_poses = gt_poses @ BASIS_OFFSET.to(gt_poses) # Make flat in LichtFeld
         pred_poses, align = procrustes_transform(pred_poses, gt_poses[1::2], pred_poses)
@@ -101,7 +107,7 @@ def main() -> None:
             start_time = time.perf_counter()
             cmd = [
                 str(LICHTFELD_BINARY),
-                # "--headless",
+                "--headless",
                 "--test-every", "2",
                 "--config", str(LICHTFELD_CONFIG),
                 "--data-path", str(temp_path),

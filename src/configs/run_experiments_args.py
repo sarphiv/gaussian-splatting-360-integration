@@ -23,20 +23,20 @@ class ExperimentArgs:
 class Args:
     output_dir: Path = Path("outputs")
 
-    evaluate_poses: bool = True
-    train_splats: bool = False
-    evaluate_splats: bool = False
+    evaluate_poses: bool = False
+    train_splats: bool = True
+    evaluate_splats: bool = True
 
     experiments: list[ExperimentArgs] = field(default_factory=lambda: [
-        # ExperimentArgs("ground_truth", (0, 0), 16),
-        # ExperimentArgs("ground_truth", (0, 0), 8),
-        # ExperimentArgs("ground_truth", (0, 0), 4),
-        # ExperimentArgs("ground_truth", (0, 0), 2),
+        ExperimentArgs("ground_truth", (0, 0), 16),
+        ExperimentArgs("ground_truth", (0, 0), 8),
+        ExperimentArgs("ground_truth", (0, 0), 4),
+        ExperimentArgs("ground_truth", (0, 0), 2),
 
-        # ExperimentArgs("pycolmap_perspective_transform", (0, 0), 16),
-        # ExperimentArgs("pycolmap_perspective_transform", (0, 0), 8),
-        # ExperimentArgs("pycolmap_perspective_transform", (0, 0), 4),
-        # ExperimentArgs("pycolmap_perspective_transform", (0, 0), 2),
+        ExperimentArgs("pycolmap_perspective_transform", (0, 0), 16),
+        ExperimentArgs("pycolmap_perspective_transform", (0, 0), 8),
+        ExperimentArgs("pycolmap_perspective_transform", (0, 0), 4),
+        ExperimentArgs("pycolmap_perspective_transform", (0, 0), 2),
 
         ExperimentArgs("vipe_panorama", (48, 8), 16),
         ExperimentArgs("vipe_panorama", (48, 8), 8),
