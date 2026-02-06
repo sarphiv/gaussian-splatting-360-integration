@@ -227,7 +227,7 @@ __marimo__/
 /investigations/presentation/main.pdf
 
 # Submodules
-/vendor/
+# /vendor/
 
 # Display
 /imgui.ini
