@@ -1247,12 +1247,12 @@ Some inspirational quote \ - Someone
 === Okay
 #align(center)[
   ViPE, 8.01m $plus.minus$ 7.00; 12.49$degree$ $plus.minus$ 15.13
-  #image("media/results-wonk-3-vipe-16.png", height: 80%)
+  #image("media/results-okay-3-vipe-16.png", height: 80%)
 ]
 ---
 #align(center)[
   ViPE, 8.01m $plus.minus$ 7.00; 12.49$degree$ $plus.minus$ 15.13
-  #image("media/results-wonk-3-vipe-16-point-cloud.png", height: 80%)
+  #image("media/results-okay-3-vipe-16-point-cloud.png", height: 80%)
 ]
 ---
 #align(center)[
